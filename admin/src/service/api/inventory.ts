@@ -37,6 +37,7 @@ export interface InventoryImportInput {
   sku_id: number;
   lines: string[];
   dedup?: boolean;
+  import_format?: "line" | "premium";
 }
 export interface InventoryPreview {
   total?: number;
@@ -78,6 +79,19 @@ export function fetchCards(params: { product_id: number; sku_id?: number; status
 }
 export function toggleCard(id: number, enable: boolean) {
   return request({ url: `/api/v1/admin/inventory/cards/${id}/toggle`, method: "put", data: { enable } });
+}
+export interface InventoryCardContent {
+  id: number;
+  content: string;
+  version?: number;
+  can_edit?: boolean;
+  edit_block_reason?: string;
+}
+export function viewCardContent(id: number) {
+  return request<InventoryCardContent>({ url: `/api/v1/admin/inventory/cards/${id}/content` });
+}
+export function updateCardContent(id: number, content: string, expected_version: number) {
+  return request<{ id: number; version: number }>({ url: `/api/v1/admin/inventory/cards/${id}/content`, method: "put", data: { content, expected_version } });
 }
 export function exportCards(productId: number, skuId?: number) {
   return request<{ lines: string[] }>({ url: "/api/v1/admin/inventory/export", method: "post", data: { product_id: productId, sku_id: skuId } });

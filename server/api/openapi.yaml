@@ -2009,6 +2009,30 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/zcard.api.admin.v1.ViewCardContentReply'
+        put:
+            tags:
+                - AdminInventoryService
+            description: UpdateCardContent 编辑未使用的单张卡密（独立敏感权限；版本冲突时不覆盖）。
+            operationId: AdminInventoryService_UpdateCardContent
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/zcard.api.admin.v1.UpdateCardContentRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/zcard.api.admin.v1.UpdateCardContentReply'
     /api/v1/admin/inventory/cards/{id}/toggle:
         put:
             tags:
@@ -10178,6 +10202,8 @@ components:
                     type: string
                 expectedRevision:
                     type: string
+                importFormat:
+                    type: string
         zcard.api.admin.v1.ImportMediaRequest:
             required:
                 - url
@@ -10229,6 +10255,8 @@ components:
                 dedup:
                     type: boolean
                 skuId:
+                    type: string
+                importFormat:
                     type: string
         zcard.api.admin.v1.ImportProductsReply:
             type: object
@@ -13186,6 +13214,27 @@ components:
                 sort:
                     type: integer
                     format: int32
+        zcard.api.admin.v1.UpdateCardContentReply:
+            type: object
+            properties:
+                id:
+                    type: string
+                version:
+                    type: integer
+                    format: int32
+        zcard.api.admin.v1.UpdateCardContentRequest:
+            required:
+                - id
+                - content
+            type: object
+            properties:
+                id:
+                    type: string
+                content:
+                    type: string
+                expectedVersion:
+                    type: integer
+                    format: int32
         zcard.api.admin.v1.UpdateCategoryRequest:
             required:
                 - id
@@ -13886,6 +13935,13 @@ components:
                     type: string
                 content:
                     type: string
+                version:
+                    type: integer
+                    format: int32
+                canEdit:
+                    type: boolean
+                editBlockReason:
+                    type: string
         zcard.api.admin.v1.VirtualReviewItem:
             type: object
             properties:
@@ -14396,6 +14452,8 @@ components:
                 orderNo:
                     type: string
                 queryPassword:
+                    type: string
+                orderAccessToken:
                     type: string
         zcard.api.storefront.v1.FlashOffer:
             type: object

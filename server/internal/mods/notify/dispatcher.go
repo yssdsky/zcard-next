@@ -9,8 +9,10 @@ package notify
 // 变量值 HTML escape；模板本身后台可编辑——只开放占位符子集，禁用 tpl 全功能）。
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"regexp"
@@ -18,6 +20,7 @@ import (
 
 	notifyport "github.com/NovaWorks/zcard-next/server/internal/mods/notify/port"
 	"github.com/NovaWorks/zcard-next/server/internal/platform/events"
+	"github.com/NovaWorks/zcard-next/server/internal/platform/i18n"
 )
 
 // Dispatcher 事件分发器。
@@ -79,7 +82,9 @@ func (d *Dispatcher) HandleEvent(ctx context.Context, env events.Envelope) error
 		return nil // 无订阅事件（管理员告警类由业务模块显式 Send）
 	}
 	var payload map[string]any
-	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(env.Payload))
+	decoder.UseNumber()
+	if err := decoder.Decode(&payload); err != nil {
 		return fmt.Errorf("notify: 解析 %s 载荷失败: %w", env.Type, err)
 	}
 	// SMS results remain in the authenticated order view, never card delivery mail.
@@ -88,6 +93,11 @@ func (d *Dispatcher) HandleEvent(ctx context.Context, env events.Envelope) error
 	}
 	// 白名单变量（事件载荷扁平化；值统一字符串化 + HTML escape 在渲染期）
 	vars := FlattenVars(payload)
+	if env.Type == "order.paid" || env.Type == "order.delivered" {
+		if err := d.repo.orderEmailVars(ctx, env, vars); err != nil {
+			return err
+		}
+	}
 	// 品牌隔离 fail-closed：分站上下文邮件注入分站白标；
 	// 无白标 → 品牌变量留空（绝不回退主站品牌）
 	if env.SubsiteID > 0 && d.brand != nil {
@@ -101,7 +111,7 @@ func (d *Dispatcher) HandleEvent(ctx context.Context, env events.Envelope) error
 			vars["site_logo"] = ""
 		}
 	}
-	locale := "zh_CN"
+	locale := string(i18n.FromContext(ctx))
 	templateEvent := env.Type
 	if env.Type == "order.delivered" && payload["goods_type"] == "physical" {
 		templateEvent = "order.received"
@@ -115,7 +125,10 @@ func (d *Dispatcher) HandleEvent(ctx context.Context, env events.Envelope) error
 		// 模板（事件 × 通道 × 语言；无模板 → 该通道跳过——不算错误）
 		tpl, err := d.repo.Template(ctx, templateEvent, ch, locale)
 		if err != nil {
-			continue
+			if errors.Is(err, ErrNotFound) {
+				continue
+			}
+			return err
 		}
 		msg := notifyport.Message{
 			EventType: env.Type,
@@ -130,6 +143,14 @@ func (d *Dispatcher) HandleEvent(ctx context.Context, env events.Envelope) error
 		msg.UserID = parseUint(vars["user_id"])
 		msg.BizType = "order"
 		msg.BizID = parseUint64(vars["order_id"])
+		if ch == "email" && msg.Recipient == "" {
+			_ = d.repo.WriteLog(ctx, logOf(msg, "skipped", "订单未留有效邮箱，未发送邮件"))
+			continue
+		}
+		if ch == "email" && tpl.ID == 0 && vars["fetch_url"] == "" && (env.Type == "order.paid" || env.Type == "order.delivered") {
+			_ = d.repo.WriteLog(ctx, logOf(msg, "failed", "店铺网址未配置或无效，无法生成订单查询链接"))
+			continue
+		}
 
 		if err := channel.Deliver(ctx, msg); err != nil {
 			if err == ErrSkipped {
@@ -258,6 +279,9 @@ func (d *Dispatcher) Send(ctx context.Context, msg notifyport.Message) error {
 	if err := channel.Deliver(ctx, msg); err != nil {
 		if err == ErrSkipped {
 			_ = d.repo.WriteLog(ctx, logOf(msg, "skipped", "通道未配置"))
+			if msg.BizType == "order_access_recovery" {
+				return ErrSkipped
+			}
 			return nil
 		}
 		_ = d.repo.WriteLog(ctx, logOf(msg, "failed", err.Error()))

@@ -115,36 +115,25 @@ func (r *NotifyRepo) UpsertTemplate(ctx context.Context, eventType, channel, loc
 
 // Template 查模板（事件 × 通道 × 语言；locale 回落 zh_CN）。
 func (r *NotifyRepo) Template(ctx context.Context, eventType, channel, locale string) (*ent.NotifyTemplate, error) {
-	t, err := data.Client(ctx, r.data).NotifyTemplate.Query().
-		Where(
-			notifytemplate.EventType(eventType),
-			notifytemplate.ChannelEQ(notifytemplate.Channel(channel)),
-			notifytemplate.Locale(locale),
-			notifytemplate.Enabled(true),
-		).
-		Only(ctx)
-	if ent.IsNotFound(err) && locale != "zh_CN" {
-		return r.Template(ctx, eventType, channel, "zh_CN")
+	locales := []string{locale}
+	if locale != "zh_CN" {
+		locales = append(locales, "zh_CN")
 	}
-	if err != nil {
-		if ent.IsNotFound(err) {
-			if eventType == "order.shipped" || eventType == "order.received" {
-				exists, e := data.Client(ctx, r.data).NotifyTemplate.Query().Where(notifytemplate.EventType(eventType), notifytemplate.ChannelEQ(notifytemplate.Channel(channel)), notifytemplate.Locale(locale)).Exist(ctx)
-				if e != nil {
-					return nil, e
-				}
-				if !exists {
-					if eventType == "order.received" {
-						return &ent.NotifyTemplate{SubjectTpl: "订单 {{.order_no}} 已确认收货", BodyTpl: "实体商品已确认收货，请在订单详情查看配送及售后记录。", Enabled: true}, nil
-					}
-					return &ent.NotifyTemplate{SubjectTpl: "订单 {{.order_no}} 的包裹已寄出", BodyTpl: "快递公司：{{.carrier}}；快递单号：{{.tracking_no}}。请在订单详情查看配送信息。", Enabled: true}, nil
-				}
+	for _, candidate := range locales {
+		t, err := data.Client(ctx, r.data).NotifyTemplate.Query().Where(
+			notifytemplate.EventType(eventType), notifytemplate.ChannelEQ(notifytemplate.Channel(channel)), notifytemplate.Locale(candidate),
+		).Only(ctx)
+		if err == nil {
+			if !t.Enabled {
+				return nil, ErrNotFound
 			}
-			return nil, ErrNotFound
+			return t, nil
 		}
-		return nil, err
+		if !ent.IsNotFound(err) {
+			return nil, err
+		}
 	}
-	return t, nil
+	return defaultOrderTemplate(eventType, channel, locale)
 }
 
 // ListTemplates 模板列表。

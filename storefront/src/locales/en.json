@@ -1375,5 +1375,6 @@
   "购买请求标识无效": "The purchase request ID is invalid.",
   "操作请求标识无效": "The action request ID is invalid.",
   "查看全部": "View all",
-  "推荐商品加载失败": "Recommended products could not be loaded."
+  "推荐商品加载失败": "Recommended products could not be loaded.",
+  "通过下单邮箱验证，查看订单与交付结果": "Verify the email used at checkout to view your order and delivery results"
 }

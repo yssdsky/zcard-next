@@ -153,7 +153,7 @@ func ReadBodyJSON(r *http.Request) map[string]any {
 		metadata := map[string]any{}
 		for key, value := range m {
 			switch strings.ToLower(strings.ReplaceAll(key, "_", "")) {
-			case "productid", "skuid", "importid", "id", "expectedrevision":
+			case "productid", "skuid", "importid", "id", "expectedrevision", "expectedversion":
 				if inventoryAuditID(value) {
 					metadata[key] = value
 				}

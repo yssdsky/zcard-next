@@ -34,6 +34,16 @@ func EmailAddress(value string) (string, error) {
 	return strings.ToLower(value), nil
 }
 
+// ContactEmail uses the checkout contact first, with the legacy guest field as fallback.
+func ContactEmail(contact, guestContact string) string {
+	for _, value := range []string{contact, guestContact} {
+		if email, err := EmailAddress(value); err == nil {
+			return email
+		}
+	}
+	return ""
+}
+
 // NewToken creates an order-scoped bearer credential with 256 bits of entropy.
 // The raw value belongs only in the buyer's session or an authenticated recovery reply.
 func NewToken() (string, error) {

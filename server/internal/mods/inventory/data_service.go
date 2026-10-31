@@ -11,8 +11,6 @@ import (
 	"github.com/NovaWorks/zcard-next/server/internal/data/ent"
 	"github.com/NovaWorks/zcard-next/server/internal/data/ent/card"
 	"github.com/NovaWorks/zcard-next/server/internal/data/ent/lotterydraw"
-	"github.com/NovaWorks/zcard-next/server/internal/data/ent/securityauditlog"
-	"github.com/NovaWorks/zcard-next/server/internal/mods/identity"
 	"github.com/NovaWorks/zcard-next/server/internal/platform/tenancy"
 
 	"github.com/go-kratos/kratos/v3/errors"
@@ -37,10 +35,11 @@ func (s *AdminInventoryService) ImportPreview(ctx context.Context, req *adminv1.
 		return nil, errors.BadRequest("inventory.INVALID_INPUT", "商品 ID 与卡密行必填")
 	}
 	p, err := s.repo.ParseLines(ctx, ImportInput{
-		ProductID: req.GetProductId(),
-		SkuID:     req.GetSkuId(),
-		Lines:     req.GetLines(),
-		Dedup:     req.GetDedup(),
+		ProductID:    req.GetProductId(),
+		SkuID:        req.GetSkuId(),
+		ImportFormat: req.GetImportFormat(),
+		Lines:        req.GetLines(),
+		Dedup:        req.GetDedup(),
 	})
 	if err != nil {
 		return nil, inventoryTransportError(err, "inventory.PREVIEW_FAILED", "预览失败")
@@ -59,6 +58,7 @@ func (s *AdminInventoryService) ImportConfirm(ctx context.Context, req *adminv1.
 	imp, err := s.repo.ImportConfirm(ctx, ImportInput{
 		ProductID:        req.GetProductId(),
 		SkuID:            req.GetSkuId(),
+		ImportFormat:     req.GetImportFormat(),
 		ExpectedRevision: req.ExpectedRevision,
 		Operator:         actorID(ctx),
 		Lines:            req.GetLines(),
@@ -209,39 +209,6 @@ func (s *AdminInventoryService) toggleCard(ctx context.Context, req *adminv1.Tog
 		}
 	}
 	return &emptypb.Empty{}, nil
-}
-
-// ViewCardContent 查看完整卡密（card:view_content 权限已在 middleware 校验；安全审计）。
-func (s *AdminInventoryService) ViewCardContent(ctx context.Context, req *adminv1.ViewCardContentRequest) (*adminv1.ViewCardContentReply, error) {
-	c, err := data.Client(ctx, s.data).Card.Query().Where(card.ID(req.GetId()), card.SubsiteID(tenancy.FromContext(ctx).SubsiteID)).Only(ctx)
-	if ent.IsNotFound(err) {
-		return nil, errors.NotFound("inventory.CARD_NOT_FOUND", "卡密不存在")
-	}
-	if err != nil {
-		return nil, errors.InternalServer("inventory.GET_FAILED", "查询失败")
-	}
-	if s.repo.Cipher == nil {
-		return nil, errors.InternalServer("inventory.CIPHER_MISSING", "卡密密钥未配置")
-	}
-	plain, err := s.repo.Cipher.Open(c.Content, c.ProductID, c.SubsiteID)
-	if err != nil {
-		return nil, errors.InternalServer("inventory.DECRYPT_FAILED", "解密失败（密钥可能已轮换）")
-	}
-
-	// 安全审计：记录解密事件（明文绝不入审计，只记 card_id / actor）
-	claims := identity.ClaimsFromContext(ctx)
-	actorID := uint64(0)
-	if claims != nil {
-		actorID = claims.Subject
-	}
-	_, _ = data.Client(ctx, s.data).SecurityAuditLog.Create().
-		SetActorType(securityauditlog.ActorTypeAdmin).
-		SetNillableActorID(nilOr(actorID)).
-		SetAction("card.view_content").
-		SetMetadata(map[string]any{"card_id": c.ID, "product_id": c.ProductID}).
-		Save(ctx)
-
-	return &adminv1.ViewCardContentReply{Id: c.ID, Content: plain}, nil
 }
 
 // ListPremiumCards 靓号列表（number_hash 命中 + 可用卡；card:premium 权限已在 middleware 校验）。

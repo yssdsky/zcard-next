@@ -45,7 +45,7 @@ func passwordError(s State) error {
 // PublicError preserves actionable password feedback without leaking storage errors.
 func PublicError(err error) error {
 	e := errors.FromError(err)
-	if e.Reason == "order.NOT_FOUND" || e.Reason == "order.FETCH_LOCKED" || e.Reason == "order.QUERY_PASSWORD_REQUIRED" {
+	if e.Reason == "order.NOT_FOUND" || e.Reason == "order.FETCH_LOCKED" || e.Reason == "order.QUERY_PASSWORD_REQUIRED" || e.Reason == "order.ACCESS_REQUIRED" {
 		return e
 	}
 	return errors.InternalServer("order.QUERY_FAILED", "订单查询暂时失败，请稍后重试")

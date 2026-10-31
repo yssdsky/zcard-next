@@ -30,6 +30,7 @@ const OperationAdminInventoryServiceListImports = "/zcard.api.admin.v1.AdminInve
 const OperationAdminInventoryServiceListPremiumCards = "/zcard.api.admin.v1.AdminInventoryService/ListPremiumCards"
 const OperationAdminInventoryServicePreviewCancelImport = "/zcard.api.admin.v1.AdminInventoryService/PreviewCancelImport"
 const OperationAdminInventoryServiceToggleCard = "/zcard.api.admin.v1.AdminInventoryService/ToggleCard"
+const OperationAdminInventoryServiceUpdateCardContent = "/zcard.api.admin.v1.AdminInventoryService/UpdateCardContent"
 const OperationAdminInventoryServiceViewCardContent = "/zcard.api.admin.v1.AdminInventoryService/ViewCardContent"
 
 type AdminInventoryServiceHTTPServer interface {
@@ -53,6 +54,8 @@ type AdminInventoryServiceHTTPServer interface {
 	PreviewCancelImport(context.Context, *CancelImportRequest) (*CancelImportPreviewReply, error)
 	// ToggleCard ToggleCard 禁用/启用单张卡。
 	ToggleCard(context.Context, *ToggleCardRequest) (*emptypb.Empty, error)
+	// UpdateCardContent UpdateCardContent 编辑未使用的单张卡密（独立敏感权限；版本冲突时不覆盖）。
+	UpdateCardContent(context.Context, *UpdateCardContentRequest) (*UpdateCardContentReply, error)
 	// ViewCardContent ViewCardContent 查看完整卡密（card:view_content 权限 + 安全审计）。
 	ViewCardContent(context.Context, *ViewCardContentRequest) (*ViewCardContentReply, error)
 }
@@ -71,6 +74,7 @@ func RegisterAdminInventoryServiceHTTPServer(s *http.Server, srv AdminInventoryS
 	r.Handle("POST", "/api/v1/admin/inventory/export", _AdminInventoryService_ExportCards0_HTTP_Handler(srv))
 	r.Handle("PUT", "/api/v1/admin/inventory/cards/{id}/toggle", _AdminInventoryService_ToggleCard0_HTTP_Handler(srv))
 	r.Handle("GET", "/api/v1/admin/inventory/cards/{id}/content", _AdminInventoryService_ViewCardContent0_HTTP_Handler(srv))
+	r.Handle("PUT", "/api/v1/admin/inventory/cards/{id}/content", _AdminInventoryService_UpdateCardContent0_HTTP_Handler(srv))
 	r.Handle("GET", "/api/v1/admin/inventory/cards/premium", _AdminInventoryService_ListPremiumCards0_HTTP_Handler(srv))
 }
 
@@ -314,6 +318,28 @@ func _AdminInventoryService_ViewCardContent0_HTTP_Handler(srv AdminInventoryServ
 	}
 }
 
+func _AdminInventoryService_UpdateCardContent0_HTTP_Handler(srv AdminInventoryServiceHTTPServer) func(ctx http.Context) error {
+	return func(ctx http.Context) error {
+		var in UpdateCardContentRequest
+		if err := ctx.Bind(&in); err != nil {
+			return err
+		}
+		if err := ctx.BindVars(&in); err != nil {
+			return err
+		}
+		http.SetOperation(ctx, OperationAdminInventoryServiceUpdateCardContent)
+		h := ctx.Middleware(func(ctx context.Context, req interface{}) (interface{}, error) {
+			return srv.UpdateCardContent(ctx, req.(*UpdateCardContentRequest))
+		})
+		out, err := h(ctx, &in)
+		if err != nil {
+			return err
+		}
+		reply := out.(*UpdateCardContentReply)
+		return ctx.Result(200, reply)
+	}
+}
+
 func _AdminInventoryService_ListPremiumCards0_HTTP_Handler(srv AdminInventoryServiceHTTPServer) func(ctx http.Context) error {
 	return func(ctx http.Context) error {
 		var in ListPremiumCardsRequest
@@ -354,6 +380,8 @@ type AdminInventoryServiceHTTPClient interface {
 	PreviewCancelImport(ctx context.Context, req *CancelImportRequest, opts ...http.CallOption) (rsp *CancelImportPreviewReply, err error)
 	// ToggleCard ToggleCard 禁用/启用单张卡。
 	ToggleCard(ctx context.Context, req *ToggleCardRequest, opts ...http.CallOption) (rsp *emptypb.Empty, err error)
+	// UpdateCardContent UpdateCardContent 编辑未使用的单张卡密（独立敏感权限；版本冲突时不覆盖）。
+	UpdateCardContent(ctx context.Context, req *UpdateCardContentRequest, opts ...http.CallOption) (rsp *UpdateCardContentReply, err error)
 	// ViewCardContent ViewCardContent 查看完整卡密（card:view_content 权限 + 安全审计）。
 	ViewCardContent(ctx context.Context, req *ViewCardContentRequest, opts ...http.CallOption) (rsp *ViewCardContentReply, err error)
 }
@@ -564,6 +592,24 @@ func (c *AdminInventoryServiceHTTPClientImpl) ToggleCard(ctx context.Context, in
 		http.Accept("application/protojson"),
 		http.ContentType("application/protojson"),
 		http.Operation(OperationAdminInventoryServiceToggleCard),
+		http.PathTemplate(pattern),
+	}, opts...)
+	err := c.cc.Invoke(ctx, "PUT", path, in, &out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// UpdateCardContent UpdateCardContent 编辑未使用的单张卡密（独立敏感权限；版本冲突时不覆盖）。
+func (c *AdminInventoryServiceHTTPClientImpl) UpdateCardContent(ctx context.Context, in *UpdateCardContentRequest, opts ...http.CallOption) (*UpdateCardContentReply, error) {
+	var out UpdateCardContentReply
+	pattern := "/api/v1/admin/inventory/cards/{id}/content"
+	path := http.BuildPath(pattern, in)
+	opts = append([]http.CallOption{
+		http.Accept("application/protojson"),
+		http.ContentType("application/protojson"),
+		http.Operation(OperationAdminInventoryServiceUpdateCardContent),
 		http.PathTemplate(pattern),
 	}, opts...)
 	err := c.cc.Invoke(ctx, "PUT", path, in, &out, opts...)

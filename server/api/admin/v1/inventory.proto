@@ -66,6 +66,10 @@ service AdminInventoryService {
   rpc ViewCardContent(ViewCardContentRequest) returns (ViewCardContentReply) {
     option (google.api.http) = { get: "/api/v1/admin/inventory/cards/{id}/content" };
   }
+  // UpdateCardContent 编辑未使用的单张卡密（独立敏感权限；版本冲突时不覆盖）。
+  rpc UpdateCardContent(UpdateCardContentRequest) returns (UpdateCardContentReply) {
+    option (google.api.http) = { put: "/api/v1/admin/inventory/cards/{id}/content" body: "*" };
+  }
   // ListPremiumCards 靓号列表（number_hash 命中 + 可用卡；card:premium 权限）。
   rpc ListPremiumCards(ListPremiumCardsRequest) returns (ListPremiumCardsReply) {
     option (google.api.http) = { get: "/api/v1/admin/inventory/cards/premium" };
@@ -77,6 +81,7 @@ message ImportPreviewRequest {
   repeated string lines = 2 [(google.api.field_behavior) = REQUIRED];
   bool dedup = 3;
   uint64 sku_id = 4; // 有规格商品必须明确选择；无规格商品使用 0。
+  string import_format = 5; // 默认/line=整行完整卡密；premium=显式旧靓号格式，仅交付首段。
 }
 
 message ImportPreviewReply {
@@ -97,6 +102,7 @@ message ImportConfirmRequest {
   bool dedup = 3;
   uint64 sku_id = 4;
   optional int64 expected_revision = 5;
+  string import_format = 6;
 }
 
 message ImportBatch {
@@ -178,6 +184,20 @@ message ViewCardContentRequest {
 message ViewCardContentReply {
   uint64 id = 1;
   string content = 2; // 完整明文（一次性下发；Cache-Control: no-store 由 transport 保证）
+  int32 version = 3;
+  bool can_edit = 4;
+  string edit_block_reason = 5;
+}
+
+message UpdateCardContentRequest {
+  uint64 id = 1 [(google.api.field_behavior) = REQUIRED];
+  string content = 2 [(google.api.field_behavior) = REQUIRED];
+  optional int32 expected_version = 3;
+}
+
+message UpdateCardContentReply {
+  uint64 id = 1;
+  int32 version = 2;
 }
 
 message ListPremiumCardsRequest {

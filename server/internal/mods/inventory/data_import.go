@@ -27,7 +27,7 @@ type ImportPreview struct {
 	DupInDB   int      `json:"dup_in_db"`   // 与库内重复（同商品）
 	Invalid   int      `json:"invalid"`     // 格式非法行
 	Sample    []string `json:"sample"`      // 前 50 行预览
-	IsPremium bool     `json:"is_premium"`  // 是否靓号格式（含 ---分隔）
+	IsPremium bool     `json:"is_premium"`  // 显式靓号模式解析到了卡号
 	SkuID     uint64
 	SkuName   string
 	Revision  int64
@@ -37,7 +37,8 @@ type ImportPreview struct {
 type ImportInput struct {
 	ProductID        uint64
 	SkuID            uint64
-	Lines            []string // 原始行（每行一条卡密；靓号「卡密---价格---备注」三段）
+	Lines            []string // 原始行（默认每行完整文本即一条交付卡密）
+	ImportFormat     string   // line（默认）| premium（显式使用旧靓号首段解析）
 	Dedup            bool     // 去重开关（false=重复行报错）
 	Operator         uint64
 	ExpectedRevision *int64
@@ -47,6 +48,26 @@ type ImportInput struct {
 
 // dedupChunk IN 批查单批上限（500：IN 列表与唯一索引扫描的平衡点）。
 const dedupChunk = 500
+
+func validateImportFormat(format string) error {
+	if format != "" && format != "line" && format != "premium" {
+		return kerrors.BadRequest("inventory.IMPORT_FORMAT_INVALID", "请选择整行卡密或靓号格式")
+	}
+	return nil
+}
+
+// importLine keeps delimiters inside ordinary credentials. Legacy number-only
+// parsing is available only when the administrator explicitly selects premium.
+// Later segments retain the old ignored behavior; they do not set price or note.
+func importLine(raw, format string) (content string, premium bool) {
+	content = strings.TrimSpace(raw)
+	if format == "premium" {
+		if parts := strings.SplitN(content, "---", 3); len(parts) >= 2 {
+			return strings.TrimSpace(parts[0]), true
+		}
+	}
+	return content, false
+}
 
 // existingHashes 批查库内已存在的 content_hash 集合（分组 IN，替代逐行 Exist）。
 func (r *CardRepoImpl) existingHashes(ctx context.Context, client *ent.Client, productID uint64, hashes []string) (map[string]bool, error) {
@@ -70,8 +91,11 @@ func (r *CardRepoImpl) existingHashes(ctx context.Context, client *ent.Client, p
 	return out, nil
 }
 
-// ParseLines 解析原始行（靓号三段式检测 + 去重 + 预览统计）。
+// ParseLines 解析原始行（默认完整卡密，显式靓号模式 + 去重 + 预览统计）。
 func (r *CardRepoImpl) ParseLines(ctx context.Context, in ImportInput) (*ImportPreview, error) {
+	if err := validateImportFormat(in.ImportFormat); err != nil {
+		return nil, err
+	}
 	product, err := r.inventoryProduct(ctx, in.ProductID)
 	if err != nil {
 		return nil, err
@@ -89,9 +113,8 @@ func (r *CardRepoImpl) ParseLines(ctx context.Context, in ImportInput) (*ImportP
 
 	// 第一遍：文件内去重 + 收集待查 hash
 	type pending struct {
-		hash  string
-		line  string
-		parts []string
+		hash string
+		line string
 	}
 	uniq := make([]pending, 0, len(in.Lines))
 	hashes := make([]string, 0, len(in.Lines))
@@ -102,11 +125,11 @@ func (r *CardRepoImpl) ParseLines(ctx context.Context, in ImportInput) (*ImportP
 		}
 		p.Total++
 
-		// 靓号检测
-		parts := strings.SplitN(line, "---", 3)
-		if len(parts) >= 2 {
-			p.IsPremium = true
-			line = strings.TrimSpace(parts[0])
+		line, premium := importLine(line, in.ImportFormat)
+		p.IsPremium = p.IsPremium || premium
+		if line == "" {
+			p.Invalid++
+			continue
 		}
 
 		// 文件内去重
@@ -118,7 +141,7 @@ func (r *CardRepoImpl) ParseLines(ctx context.Context, in ImportInput) (*ImportP
 
 		hash := r.Cipher.ContentHash(line)
 		hashes = append(hashes, hash)
-		uniq = append(uniq, pending{hash: hash, line: line, parts: parts})
+		uniq = append(uniq, pending{hash: hash, line: line})
 	}
 
 	// 第二遍：库内去重（一次批查全部 hash）
@@ -132,11 +155,7 @@ func (r *CardRepoImpl) ParseLines(ctx context.Context, in ImportInput) (*ImportP
 			continue
 		}
 		if len(p.Sample) < 50 {
-			if len(u.parts) >= 2 {
-				p.Sample = append(p.Sample, u.line+"---"+strings.Join(u.parts[1:], "---"))
-			} else {
-				p.Sample = append(p.Sample, u.line)
-			}
+			p.Sample = append(p.Sample, u.line)
 		}
 	}
 	return p, nil
@@ -180,29 +199,26 @@ func (r *CardRepoImpl) importConfirm(ctx context.Context, in ImportInput) (*ent.
 				continue
 			}
 
-			// 靓号解析（非靓号 number=整行，防文件内去重误判）
-			var number string
-			parts := strings.SplitN(line, "---", 3)
-			if len(parts) >= 2 {
-				number = strings.TrimSpace(parts[0])
-			} else {
-				number = strings.TrimSpace(line)
+			content, premium := importLine(line, in.ImportFormat)
+			if content == "" {
+				failed++
+				continue
 			}
 
 			// 文件内去重
-			if seen[number] {
+			if seen[content] {
 				skipped++
 				continue
 			}
-			seen[number] = true
+			seen[content] = true
 
 			// 加密 + keyed hash
-			enc, err := r.Cipher.Seal(number, in.ProductID, in.SubsiteID)
+			enc, err := r.Cipher.Seal(content, in.ProductID, in.SubsiteID)
 			if err != nil {
 				failed++
 				continue
 			}
-			hash := r.Cipher.ContentHash(number)
+			hash := r.Cipher.ContentHash(content)
 			pendingHashes = append(pendingHashes, hash)
 
 			create := client.Card.Create().
@@ -216,8 +232,8 @@ func (r *CardRepoImpl) importConfirm(ctx context.Context, in ImportInput) (*ent.
 				create.SetImportID(imp.ID)
 			}
 			// 靓号字段
-			if len(parts) >= 2 {
-				nh := r.Cipher.ContentHash("number:" + number)
+			if premium {
+				nh := r.Cipher.ContentHash("number:" + content)
 				create.SetNumberHash(nh)
 			}
 			creates = append(creates, create)
@@ -336,6 +352,9 @@ func (r *CardRepoImpl) ExportCards(ctx context.Context, productID uint64, skuID 
 }
 
 func (r *CardRepoImpl) ImportConfirm(ctx context.Context, in ImportInput) (out *ent.CardImport, err error) {
+	if err := validateImportFormat(in.ImportFormat); err != nil {
+		return nil, err
+	}
 	err = data.Tx(ctx, r.data, func(ctx context.Context) error {
 		p, e := data.GuardProductWrite(ctx, r.data, in.ProductID)
 		if e != nil {

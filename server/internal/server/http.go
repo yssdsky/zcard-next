@@ -389,7 +389,8 @@ func privateOrderResponseFilter(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/v1/storefront/orders") ||
 			strings.HasPrefix(r.URL.Path, "/api/v1/storefront/payments") ||
-			r.URL.Path == "/api/v1/storefront/payment/quote" {
+			r.URL.Path == "/api/v1/storefront/payment/quote" ||
+			(strings.HasPrefix(r.URL.Path, "/api/v1/admin/inventory/cards/") && strings.HasSuffix(r.URL.Path, "/content")) {
 			w.Header().Set("Cache-Control", "no-store, private")
 		}
 		next.ServeHTTP(w, r)

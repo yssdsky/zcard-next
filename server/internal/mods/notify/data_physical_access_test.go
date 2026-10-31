@@ -10,6 +10,8 @@ import (
 func TestPhysicalReceiptDoesNotUseCardTemplate(t *testing.T) {
 	r := newNotifyRepo(t)
 	ctx := context.Background()
+	r.data.Client.Order.Create().SetID(1).SetOrderNo("PHYSICAL").SetUserID(7).SaveX(ctx)
+	r.data.Client.Order.Create().SetID(2).SetOrderNo("DIGITAL").SetUserID(7).SaveX(ctx)
 	if _, err := r.UpsertTemplate(ctx, "order.delivered", "inbox", "zh_CN", "卡密已发货", "请取货 {{.fetch_url}}", true); err != nil {
 		t.Fatal(err)
 	}

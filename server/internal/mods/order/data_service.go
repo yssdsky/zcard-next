@@ -123,7 +123,7 @@ func (s *StoreOrderService) GetOrder(ctx context.Context, req *storefrontv1.GetO
 	o, err := s.uc.GetByOrderNo(ctx, req.GetOrderNo())
 	if ent.IsNotFound(err) {
 		if token != "" {
-			return nil, errors.NotFound("order.NOT_FOUND", "订单不存在或访问凭证无效")
+			return nil, orderaccess.Required(ctx)
 		}
 		return nil, orderaccess.PublicError(orderaccess.Verify(ctx, s.uc.Gate, req.GetOrderNo(), "", req.GetQueryPassword(), orderClientIP(ctx)))
 	}
@@ -132,7 +132,7 @@ func (s *StoreOrderService) GetOrder(ctx context.Context, req *storefrontv1.GetO
 	}
 	if o.SubsiteID != tenancy.FromContext(ctx).SubsiteID {
 		if token != "" {
-			return nil, errors.NotFound("order.NOT_FOUND", "订单不存在或访问凭证无效")
+			return nil, orderaccess.Required(ctx)
 		}
 		return nil, orderaccess.PublicError(orderaccess.Verify(ctx, s.uc.Gate, req.GetOrderNo(), "", req.GetQueryPassword(), orderClientIP(ctx)))
 	}
@@ -140,15 +140,9 @@ func (s *StoreOrderService) GetOrder(ctx context.Context, req *storefrontv1.GetO
 	// 非本人登录态不泄露订单存在性，仍走密码校验路径）
 	claims := identity.ClaimsFromContext(ctx)
 	isOwner := claims != nil && o.UserID != 0 && claims.Subject == o.UserID
-	if !isOwner {
-		if o.OrderAccessTokenHash != "" {
-			if !orderaccess.VerifyToken(o.OrderAccessTokenHash, o.SubsiteID, o.OrderNo, token) {
-				return nil, orderaccess.Required(ctx)
-			}
-		} else if token != "" {
-			if !orderaccess.VerifyToken(o.OrderAccessTokenHash, o.SubsiteID, o.OrderNo, token) {
-				return nil, errors.NotFound("order.NOT_FOUND", "订单不存在或访问凭证无效")
-			}
+	if !isOwner && !orderaccess.VerifyToken(o.OrderAccessTokenHash, o.SubsiteID, o.OrderNo, token) {
+		if (o.OrderAccessTokenHash != "" || token != "") && req.GetQueryPassword() == "" {
+			return nil, orderaccess.Required(ctx)
 		} else {
 			// 查询密码校验（三重门之一：设置则必须匹配；错误与单号不存在表现一致）
 			if err := orderaccess.Verify(ctx, s.uc.Gate, o.OrderNo, o.QueryPasswordHash, req.GetQueryPassword(), orderClientIP(ctx)); err != nil {

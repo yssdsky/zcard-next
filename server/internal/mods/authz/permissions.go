@@ -331,6 +331,8 @@ func init() {
 		// ── 敏感权限点预登记（ 防内部偷卡；路由 落地）──
 		Perm{Code: "card:view_content", Desc: "查看完整卡密（需二次确认+审计）", Domain: "inventory", AdminOnly: true,
 			Op: "zcard.api.admin.v1.AdminInventoryService/ViewCardContent", Method: "GET", Path: "/api/v1/admin/inventory/cards/{id}/content"},
+		Perm{Code: "card:edit_content", Desc: "编辑未使用卡密（敏感操作）", Domain: "inventory", AdminOnly: true,
+			Op: "zcard.api.admin.v1.AdminInventoryService/UpdateCardContent", Method: "PUT", Path: "/api/v1/admin/inventory/cards/{id}/content"},
 		Perm{Code: "card:premium", Desc: "查看靓号列表（超管）", Domain: "inventory", AdminOnly: true,
 			Op: "zcard.api.admin.v1.AdminInventoryService/ListPremiumCards", Method: "GET", Path: "/api/v1/admin/inventory/cards/premium"},
 		Perm{Code: "card:export", Desc: "导出卡密（审批+审计+限流）", Domain: "inventory", AdminOnly: true},

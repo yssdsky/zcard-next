@@ -251,27 +251,44 @@ type FetchItem struct {
 // FetchDelivery 取货（三重门：单号+密码+限流；凭正确密码始终返回明文——
 // 2026-09-03 修订，原「首次明文、后续掩码」致支付页自动取货消耗首次后客户
 // 再查只见尾 4 位掩码，客诉率高）。
-func (r *DeliveryRepoImpl) FetchDelivery(ctx context.Context, orderNo, queryPassword, clientIP string) (*FetchResult, error) {
+func (r *DeliveryRepoImpl) FetchDelivery(ctx context.Context, orderNo, queryPassword, clientIP string, accessToken ...string) (*FetchResult, error) {
 	client := data.Client(ctx, r.data)
+	var token string
+	if len(accessToken) > 0 {
+		token = accessToken[0]
+	}
 
 	// 门 1+2：单号 + 查询密码（错误响应一致——防枚举）
 	o, err := client.Order.Query().Where(order.OrderNo(orderNo)).Only(ctx)
 	if ent.IsNotFound(err) {
+		if token != "" {
+			return nil, orderaccess.Required(ctx)
+		}
 		return nil, orderaccess.Verify(ctx, r.gate, orderNo, "", queryPassword, clientIP)
 	}
 	if err != nil {
 		return nil, err
 	}
 	if o.SubsiteID != tenancy.FromContext(ctx).SubsiteID {
+		if token != "" {
+			return nil, orderaccess.Required(ctx)
+		}
 		return nil, orderaccess.Verify(ctx, r.gate, orderNo, "", queryPassword, clientIP)
 	}
 	claims := identity.ClaimsFromContext(ctx)
 	owner := claims != nil && o.UserID != 0 && claims.Subject == o.UserID
-	// Preserve historical password-less virtual orders; new physical guests require a password.
-	if !owner && (o.QueryPasswordHash != "" || o.CommerceVersion > 0) {
+	tokenAuthorized := orderaccess.VerifyToken(o.OrderAccessTokenHash, o.SubsiteID, o.OrderNo, token)
+	if !owner && !tokenAuthorized && (o.OrderAccessTokenHash != "" || token != "") && queryPassword == "" {
+		return nil, orderaccess.Required(ctx)
+	}
+	// Email-verified access and the original password remain valid alternatives.
+	if !owner && !tokenAuthorized && (o.QueryPasswordHash != "" || o.CommerceVersion > 0 || o.OrderAccessTokenHash != "") {
 		if err := orderaccess.Verify(ctx, r.gate, o.OrderNo, o.QueryPasswordHash, queryPassword, clientIP); err != nil {
 			return nil, err
 		}
+	}
+	if o.Status == order.StatusPendingPayment {
+		return &FetchResult{OrderNo: o.OrderNo, Status: string(o.Status)}, nil
 	}
 
 	// 取交付记录

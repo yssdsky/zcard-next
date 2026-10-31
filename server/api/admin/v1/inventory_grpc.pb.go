@@ -32,6 +32,7 @@ const (
 	AdminInventoryService_ExportCards_FullMethodName         = "/zcard.api.admin.v1.AdminInventoryService/ExportCards"
 	AdminInventoryService_ToggleCard_FullMethodName          = "/zcard.api.admin.v1.AdminInventoryService/ToggleCard"
 	AdminInventoryService_ViewCardContent_FullMethodName     = "/zcard.api.admin.v1.AdminInventoryService/ViewCardContent"
+	AdminInventoryService_UpdateCardContent_FullMethodName   = "/zcard.api.admin.v1.AdminInventoryService/UpdateCardContent"
 	AdminInventoryService_ListPremiumCards_FullMethodName    = "/zcard.api.admin.v1.AdminInventoryService/ListPremiumCards"
 )
 
@@ -61,6 +62,8 @@ type AdminInventoryServiceClient interface {
 	ToggleCard(ctx context.Context, in *ToggleCardRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// ViewCardContent 查看完整卡密（card:view_content 权限 + 安全审计）。
 	ViewCardContent(ctx context.Context, in *ViewCardContentRequest, opts ...grpc.CallOption) (*ViewCardContentReply, error)
+	// UpdateCardContent 编辑未使用的单张卡密（独立敏感权限；版本冲突时不覆盖）。
+	UpdateCardContent(ctx context.Context, in *UpdateCardContentRequest, opts ...grpc.CallOption) (*UpdateCardContentReply, error)
 	// ListPremiumCards 靓号列表（number_hash 命中 + 可用卡；card:premium 权限）。
 	ListPremiumCards(ctx context.Context, in *ListPremiumCardsRequest, opts ...grpc.CallOption) (*ListPremiumCardsReply, error)
 }
@@ -193,6 +196,16 @@ func (c *adminInventoryServiceClient) ViewCardContent(ctx context.Context, in *V
 	return out, nil
 }
 
+func (c *adminInventoryServiceClient) UpdateCardContent(ctx context.Context, in *UpdateCardContentRequest, opts ...grpc.CallOption) (*UpdateCardContentReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateCardContentReply)
+	err := c.cc.Invoke(ctx, AdminInventoryService_UpdateCardContent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *adminInventoryServiceClient) ListPremiumCards(ctx context.Context, in *ListPremiumCardsRequest, opts ...grpc.CallOption) (*ListPremiumCardsReply, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListPremiumCardsReply)
@@ -229,6 +242,8 @@ type AdminInventoryServiceServer interface {
 	ToggleCard(context.Context, *ToggleCardRequest) (*emptypb.Empty, error)
 	// ViewCardContent 查看完整卡密（card:view_content 权限 + 安全审计）。
 	ViewCardContent(context.Context, *ViewCardContentRequest) (*ViewCardContentReply, error)
+	// UpdateCardContent 编辑未使用的单张卡密（独立敏感权限；版本冲突时不覆盖）。
+	UpdateCardContent(context.Context, *UpdateCardContentRequest) (*UpdateCardContentReply, error)
 	// ListPremiumCards 靓号列表（number_hash 命中 + 可用卡；card:premium 权限）。
 	ListPremiumCards(context.Context, *ListPremiumCardsRequest) (*ListPremiumCardsReply, error)
 	mustEmbedUnimplementedAdminInventoryServiceServer()
@@ -276,6 +291,9 @@ func (UnimplementedAdminInventoryServiceServer) ToggleCard(context.Context, *Tog
 }
 func (UnimplementedAdminInventoryServiceServer) ViewCardContent(context.Context, *ViewCardContentRequest) (*ViewCardContentReply, error) {
 	return nil, status.Error(codes.Unimplemented, "method ViewCardContent not implemented")
+}
+func (UnimplementedAdminInventoryServiceServer) UpdateCardContent(context.Context, *UpdateCardContentRequest) (*UpdateCardContentReply, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateCardContent not implemented")
 }
 func (UnimplementedAdminInventoryServiceServer) ListPremiumCards(context.Context, *ListPremiumCardsRequest) (*ListPremiumCardsReply, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListPremiumCards not implemented")
@@ -517,6 +535,24 @@ func _AdminInventoryService_ViewCardContent_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminInventoryService_UpdateCardContent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateCardContentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminInventoryServiceServer).UpdateCardContent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminInventoryService_UpdateCardContent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminInventoryServiceServer).UpdateCardContent(ctx, req.(*UpdateCardContentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AdminInventoryService_ListPremiumCards_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListPremiumCardsRequest)
 	if err := dec(in); err != nil {
@@ -589,6 +625,10 @@ var AdminInventoryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ViewCardContent",
 			Handler:    _AdminInventoryService_ViewCardContent_Handler,
+		},
+		{
+			MethodName: "UpdateCardContent",
+			Handler:    _AdminInventoryService_UpdateCardContent_Handler,
 		},
 		{
 			MethodName: "ListPremiumCards",

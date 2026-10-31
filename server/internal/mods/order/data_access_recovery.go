@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"html"
 	"math/big"
-	"strings"
 	"time"
 
 	storefrontv1 "github.com/NovaWorks/zcard-next/server/api/storefront/v1"
@@ -39,7 +38,7 @@ func recoveryInvalid(ctx context.Context) error {
 }
 
 func recoveryOrderMatches(o *ent.Order, email string) bool {
-	return o != nil && o.UserID == 0 && o.OrderAccessTokenHash != "" && strings.EqualFold(strings.TrimSpace(o.Contact), email)
+	return o != nil && o.UserID == 0 && orderaccess.ContactEmail(o.Contact, o.GuestContact) == email
 }
 
 func (s *StoreOrderService) recoveryCodeHash(scope, code string) string {

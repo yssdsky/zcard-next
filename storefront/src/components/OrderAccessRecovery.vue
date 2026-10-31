@@ -31,7 +31,7 @@ async function recover() {
 </script>
 <template>
   <form class="order-recovery" @submit.prevent="recover">
-    <p>{{ $t('通过下单邮箱验证，查看订单与物流') }}</p>
+    <p>{{ $t('通过下单邮箱验证，查看订单与交付结果') }}</p>
     <label v-if="!orderNo">{{ $t('订单号') }}<input v-model="number" class="input" required autocomplete="off" /></label>
     <label>{{ $t('下单邮箱') }}<input v-model="email" class="input" type="email" required autocomplete="email" /></label>
     <button type="button" class="btn secondary" :disabled="busy || !number.trim() || !email.trim()" @click="sendCode">{{ $t('发送验证码') }}</button>

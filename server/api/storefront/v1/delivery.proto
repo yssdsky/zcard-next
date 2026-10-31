@@ -25,7 +25,8 @@ service StoreDeliveryService {
 
 message FetchDeliveryRequest {
   string order_no = 1 [(google.api.field_behavior) = REQUIRED];
-  string query_password = 2; // Required for guests; authenticated order owners may omit it.
+  string query_password = 2; // Guests may also use the order-scoped credential from email verification.
+  string order_access_token = 3;
 }
 
 message FetchDeliveryReply {

@@ -155,17 +155,11 @@ func (s *StorePaymentService) paymentOrder(ctx context.Context, no, password str
 		return nil, err
 	}
 	if !paymentOrderOwner(ctx, o) {
-		if o.OrderAccessTokenHash != "" {
-			if !orderaccess.VerifyToken(o.OrderAccessTokenHash, o.SubsiteID, o.OrderNo, token) {
+		valid := orderaccess.VerifyToken(o.OrderAccessTokenHash, o.SubsiteID, o.OrderNo, token) || o.QueryPasswordHash != "" && crypto.VerifyPassword(o.QueryPasswordHash, password)
+		if !valid {
+			if o.OrderAccessTokenHash != "" {
 				return nil, orderaccess.Required(ctx)
 			}
-			return o, nil
-		}
-		valid := o.QueryPasswordHash != "" && crypto.VerifyPassword(o.QueryPasswordHash, password)
-		if token != "" {
-			valid = orderaccess.VerifyToken(o.OrderAccessTokenHash, o.SubsiteID, o.OrderNo, token)
-		}
-		if !valid {
 			return nil, errors.NotFound("order.NOT_FOUND", "订单不存在或查询凭证无效")
 		}
 	}

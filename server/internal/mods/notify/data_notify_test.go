@@ -139,6 +139,7 @@ func TestInboxLifecycle(t *testing.T) {
 func TestDispatcherEventFlow(t *testing.T) {
 	r := newNotifyRepo(t)
 	ctx := context.Background()
+	r.data.Client.Order.Create().SetID(55).SetOrderNo("T999").SetUserID(7).SetContact("u@x.com").SaveX(ctx)
 
 	// 模板（email + inbox 两通道）
 	if _, err := r.UpsertTemplate(ctx, "order.paid", "email", "zh_CN", "订单 {{.order_no}} 已支付", "<p>金额 {{.amount}}</p>", true); err != nil {
@@ -406,6 +407,9 @@ func (f *fakeBrandResolver) ResolveBrand(_ context.Context, _ uint64) (notifypor
 func TestDispatcherBrandIsolation(t *testing.T) {
 	r := newNotifyRepo(t)
 	ctx := context.Background()
+	r.data.Client.Order.Create().SetID(1).SetOrderNo("T1").SetUserID(7).SetSubsiteID(5).SaveX(ctx)
+	r.data.Client.Order.Create().SetID(2).SetOrderNo("T2").SetUserID(8).SetSubsiteID(5).SaveX(ctx)
+	r.data.Client.Order.Create().SetID(3).SetOrderNo("T3").SetUserID(9).SaveX(ctx)
 	if _, err := r.UpsertTemplate(ctx, "order.paid", "inbox", "zh_CN", "支付成功", "站点 {{.site_name}} logo={{.site_logo}}", true); err != nil {
 		t.Fatal(err)
 	}

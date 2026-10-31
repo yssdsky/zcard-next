@@ -4,6 +4,7 @@ import { useRoute } from "vue-router";
 import { NButton, NPopconfirm, NSpace, NTag } from "naive-ui";
 import type { DataTableColumns, DataTableRowKey } from "naive-ui";
 import { checkAuth } from "@/directives";
+import { useAuthStore } from "@/store/modules/auth";
 import { cardStatusText } from "@/utils/business-status";
 import { formatMoney } from "@/utils/money";
 import TablePager from "@/components/common/table-pager.vue";
@@ -11,12 +12,14 @@ import {
   assignCards, cancelImport, exportCards, fetchCards, fetchCategories,
   fetchImports, fetchInventoryTargets, fetchPremiumCards, fetchProducts,
   importConfirm, importPreview, previewAssignCards, previewCancelImport, toggleCard,
+  viewCardContent, updateCardContent, type InventoryCardContent,
   type InventoryAssignPreview, type InventoryBatch, type InventoryPreview,
   type InventorySkuCount, type InventoryTargets,
 } from "@/service/api";
 
 defineOptions({ name: "InventoryManagement" });
 const route = useRoute();
+const authStore = useAuthStore();
 const selectedProduct = ref<number | null>(null);
 const selectedSku = ref<number | null>(null); // null=全部，0=默认池
 const filterCatId = ref<number | null>(null);
@@ -136,6 +139,7 @@ async function refreshInventory() {
   await Promise.all([loadCards(), loadBatches(), loadTargets(), inventoryTab.value === "premium" ? loadPremium() : Promise.resolve()]);
 }
 watch(selectedProduct, () => {
+  clearCardContent();
   selectedSku.value = null; batchSku.value = "all"; checkedKeys.value = []; cards.value = []; cardTotal.value = 0; cardPage.value = 1;
   void loadTargets(); void loadCards(); void loadBatches();
   premiumCards.value = []; premiumTotal.value = 0;
@@ -187,9 +191,48 @@ async function handleToggle(row: any) {
   if (!error) { window.$message?.success("卡密状态已更新"); await refreshInventory(); }
 }
 
+// Full credentials live only in this dialog after an explicit confirmed read.
+const showCardContent = ref(false), cardRevealing = ref(false), cardSaving = ref(false), cardEditing = ref(false);
+const contentCard = ref<any>(null), contentDetails = ref<InventoryCardContent | null>(null), cardPlain = ref(""), cardContentError = ref("");
+let contentRequest = 0;
+function clearCardContent() {
+  contentRequest++; showCardContent.value = false; contentCard.value = null;
+  contentDetails.value = null; cardPlain.value = ""; cardContentError.value = "";
+  cardEditing.value = false; cardRevealing.value = false; cardSaving.value = false;
+}
+watch(() => authStore.userInfo.userId, clearCardContent);
+watch(() => authStore.isLogin, clearCardContent);
+async function revealCard(row: any) {
+  if (!checkAuth("card:view_content")) return;
+  clearCardContent();
+  const seq = ++contentRequest;
+  contentCard.value = row; showCardContent.value = true; cardRevealing.value = true;
+  try {
+    const { data, error } = await viewCardContent(row.id);
+    if (seq !== contentRequest || !showCardContent.value) return;
+    if (error || !data || data.id !== row.id || !safeID(data.version ?? 0, true)) {
+      cardContentError.value = "读取卡密失败，请关闭后重新查看"; return;
+    }
+    contentDetails.value = data; cardPlain.value = data.content;
+  } finally { if (seq === contentRequest) cardRevealing.value = false; }
+}
+async function saveCardContent() {
+  if (!checkAuth("card:edit_content") || !contentDetails.value?.can_edit || !cardEditing.value || cardSaving.value) return;
+  if (!cardPlain.value.trim()) { cardContentError.value = "卡密不可为空"; return; }
+  const seq = contentRequest, id = contentDetails.value.id;
+  cardSaving.value = true; cardContentError.value = "";
+  try {
+    const { error } = await updateCardContent(id, cardPlain.value, contentDetails.value.version ?? 0);
+    if (seq !== contentRequest) return;
+    if (!error) { clearCardContent(); window.$message?.success("卡密已更新"); await refreshInventory(); }
+    else cardContentError.value = "未保存修改。卡密可能已被更新或占用，请核对提示后重试；当前输入已保留。";
+  } finally { if (seq === contentRequest) cardSaving.value = false; }
+}
+
 // 一次导入只对应一个规格；请求序号与输入快照共同隔离过期预览。
 const showImport = ref(false), importing = ref(false), previewLoading = ref(false);
 const importProductId = ref<number | null>(null), importSkuId = ref<number | null>(null), importCatId = ref<number | null>(null);
+const importFormat = ref<"line" | "premium">("line");
 const importContent = ref(""), importTargets = ref<InventoryTargets | null>(null);
 const importTargetsLoading = ref(false), importTargetsError = ref("");
 const previewResult = ref<InventoryPreview | null>(null), previewKey = ref("");
@@ -200,7 +243,7 @@ const importAllowed = computed(() => !!chosenImportTarget.value?.can_import && !
 const importSkuOptions = computed(() => (importTargets.value?.targets || []).map(t => ({
   label: `${skuName(t)}${t.can_import ? "" : `（${t.reason || "不可导入"}）`}`, value: t.sku_id!, disabled: !t.can_import,
 })));
-const importKey = computed(() => JSON.stringify([importProductId.value, importSkuId.value, importContent.value]));
+const importKey = computed(() => JSON.stringify([importProductId.value, importSkuId.value, importContent.value, importFormat.value]));
 const previewImportable = computed(() => Math.max(0, (previewResult.value?.total || 0) - (previewResult.value?.dup_in_file || 0) - (previewResult.value?.dup_in_db || 0) - (previewResult.value?.invalid || 0)));
 const validPreview = computed(() => !!previewResult.value && previewKey.value === importKey.value);
 function invalidatePreview() {
@@ -226,13 +269,14 @@ async function loadImportTargets() {
 }
 function openImport(productId = selectedProduct.value, skuId = selectedSku.value) {
   if (importing.value) return;
+  importFormat.value = "line";
   pendingImportSku = skuId;
   showImport.value = true;
   if (importProductId.value === productId) void loadImportTargets(); else importProductId.value = productId;
 }
 watch(importProductId, () => { void loadImportTargets(); });
 watch(showImport, value => { if (!value) { importTargetRequest++; invalidatePreview(); } });
-watch([importSkuId, importContent], () => {
+watch([importSkuId, importContent, importFormat], () => {
   invalidatePreview();
   if (showImport.value && importAllowed.value && importContent.value.trim()) previewTimer = setTimeout(() => { void handlePreview(); }, 500);
 });
@@ -243,7 +287,7 @@ function importLines() { return importContent.value.split("\n").map(l => l.trim(
 async function handlePreview() {
   if (!showImport.value || !importAllowed.value || !importProductId.value || importSkuId.value === null || !importContent.value.trim() || importing.value) return;
   const seq = ++previewRequest, key = importKey.value;
-  const input = { product_id: importProductId.value, sku_id: importSkuId.value, lines: importLines() };
+  const input = { product_id: importProductId.value, sku_id: importSkuId.value, import_format: importFormat.value, lines: importLines() };
   previewLoading.value = true;
   try {
     const { data, error } = await importPreview(input);
@@ -258,7 +302,7 @@ async function handlePreview() {
 }
 async function handleImport() {
   if (importing.value || !validPreview.value || !importAllowed.value || !importProductId.value || importSkuId.value === null) return;
-  const input = { product_id: importProductId.value, sku_id: importSkuId.value, lines: importLines(), expected_revision: previewResult.value!.revision ?? 0 };
+  const input = { product_id: importProductId.value, sku_id: importSkuId.value, import_format: importFormat.value, lines: importLines(), expected_revision: previewResult.value!.revision ?? 0 };
   importing.value = true;
   try {
     const { data, error } = await importConfirm(input);
@@ -351,8 +395,13 @@ const cardColumns = computed<DataTableColumns<any>>(() => [
   { title: "状态", key: "status", width: 90, render: r => h(NTag, { size: "small", type: r.status === "available" ? "success" : "default" }, { default: () => r.lottery_draw_no ? "已发奖" : cardStatusText(r.status) }) },
   { title: "备注", key: "note", minWidth: 120, ellipsis: { tooltip: true } },
   { title: "创建时间", key: "created_at", width: 165, render: r => r.created_at ? new Date(r.created_at * 1000).toLocaleString() : "-" },
-  { title: "操作", key: "actions", width: 90, render: r => checkAuth("inventory:write") && ["available", "disabled"].includes(r.status)
-    ? h(NPopconfirm, { onPositiveClick: () => handleToggle(r) }, { trigger: () => h(NButton, { size: "small", quaternary: true }, { default: () => r.status === "available" ? "禁用" : "启用" }), default: () => "确认更改该卡状态？" }) : null },
+  { title: "操作", key: "actions", width: 132, fixed: "right", render: r => h(NSpace, { size: "small" }, { default: () => [
+    checkAuth("card:view_content") ? h(NPopconfirm, { onPositiveClick: () => revealCard(r), positiveText: "确认查看", negativeText: "取消" }, {
+      trigger: () => h(NButton, { size: "small", "aria-label": `查看卡密 ${r.id}` }, { default: () => checkAuth("card:edit_content") ? "查看 / 编辑" : "查看卡密" }),
+      default: () => "将解密单张完整卡密并记录安全日志，确认查看？",
+    }) : null,
+    checkAuth("inventory:write") && ["available", "disabled"].includes(r.status) ? h(NPopconfirm, { onPositiveClick: () => handleToggle(r) }, { trigger: () => h(NButton, { size: "small", quaternary: true }, { default: () => r.status === "available" ? "禁用" : "启用" }), default: () => "确认更改该卡状态？" }) : null,
+  ] }) },
 ]);
 const batchColumns: DataTableColumns<InventoryBatch> = [
   { title: "ID", key: "id", width: 75 }, { title: "商品", key: "product_name", minWidth: 120, render: r => r.product_name || `商品 #${r.product_id}` },
@@ -380,7 +429,7 @@ onMounted(() => {
   routeSku = sku;
   if (id !== null) { selectedProduct.value = id; if (route.query.open_import === "1" && checkAuth("inventory:import")) openImport(id, sku); }
 });
-onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer); targetRequest++; cardRequest++; batchRequest++; premiumRequest++; importTargetRequest++; previewRequest++; assignRequest++; assignTargetRequest++; cancelRequest++; });
+onBeforeUnmount(() => { clearCardContent(); if (previewTimer) clearTimeout(previewTimer); targetRequest++; cardRequest++; batchRequest++; premiumRequest++; importTargetRequest++; previewRequest++; assignRequest++; assignTargetRequest++; cancelRequest++; });
 </script>
 
 <template>
@@ -419,6 +468,23 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer); targetRequ
         </NTabPane>
       </NTabs>
     </NCard>
+    <NModal :show="showCardContent" @update:show="!$event && !cardSaving && clearCardContent()" preset="card" title="卡密详情" style="width: min(620px, calc(100vw - 32px))" :closable="!cardSaving" :mask-closable="!cardSaving" :close-on-esc="!cardSaving">
+      <p class="mb-12px">卡密 #{{ contentCard?.id }} · {{ contentCard ? skuName(contentCard) : '' }}</p>
+      <NSpin :show="cardRevealing">
+        <template v-if="contentDetails">
+          <NAlert v-if="contentDetails.edit_block_reason" type="info" class="mb-12px">{{ contentDetails.edit_block_reason }}</NAlert>
+          <NFormItem v-if="cardEditing" label="完整卡密"><NInput v-model:value="cardPlain" type="textarea" :rows="5" :disabled="cardSaving" :input-props="{ 'aria-label': '编辑完整卡密', autocomplete: 'off' }" /></NFormItem>
+          <pre v-else class="whitespace-pre-wrap break-all rounded-4px border p-12px" aria-label="完整卡密">{{ cardPlain }}</pre>
+          <p class="mt-12px text-12px text-gray-500">只修改此张卡密内容，不改变商品、规格和状态。预占、已售、已发奖或锁定卡密不能编辑。关闭后清除本次明文。</p>
+        </template>
+        <NAlert v-if="cardContentError" type="error" class="mt-12px">{{ cardContentError }}</NAlert>
+      </NSpin>
+      <template #footer><NSpace justify="end">
+        <NButton :disabled="cardSaving" @click="clearCardContent">关闭</NButton>
+        <NButton v-if="contentDetails?.can_edit && checkAuth('card:edit_content') && !cardEditing" @click="cardEditing = true">编辑卡密</NButton>
+        <NButton v-if="cardEditing" type="primary" :loading="cardSaving" :disabled="!cardPlain.trim()" @click="saveCardContent">保存卡密</NButton>
+      </NSpace></template>
+    </NModal>
     <NModal v-model:show="showImport" preset="dialog" title="按规格导入卡密" style="width: min(680px, calc(100vw - 32px))" :mask-closable="!importing" :close-on-esc="!importing" :closable="!importing">
       <NForm label-placement="top">
         <NFormItem label="商品">
@@ -433,7 +499,9 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer); targetRequ
         </NFormItem>
         <NAlert v-if="importTargetsError" type="error" class="mb-12px">{{ importTargetsError }} <NButton text :disabled="importing" @click="loadImportTargets">重试</NButton></NAlert>
         <NAlert v-else-if="importTargets && !importAllowed" type="info" class="mb-12px">{{ chosenImportTarget?.reason || '请选择可导入的本地卡密规格；每批只能对应一个规格。' }}</NAlert>
-        <NFormItem label="卡密内容（每行一条）"><NInput v-model:value="importContent" type="textarea" :input-props="{ 'aria-label': '导入卡密内容' }" :disabled="importing" :rows="8" placeholder="每行一条卡密；靓号格式：卡密---价格---备注" /></NFormItem>
+        <NFormItem label="导入格式"><NSelect v-model:value="importFormat" aria-label="导入格式" :disabled="importing" :options="[{ label: '每行完整卡密（保留全部分隔符）', value: 'line' }, { label: '靓号号码（仅取 --- 前的号码）', value: 'premium' }]" /></NFormItem>
+        <NAlert v-if="importFormat === 'premium'" type="warning" class="mb-12px">仅导入 --- 前的号码。后续字段不会作为卡密交付，价格和备注不导入；账号或序列号含分隔符时，请选择「每行完整卡密」。</NAlert>
+        <NFormItem label="卡密内容（每行一条）"><NInput v-model:value="importContent" type="textarea" :input-props="{ 'aria-label': '导入卡密内容' }" :disabled="importing" :rows="8" placeholder="每行一张完整卡密，例如 HYDYG6666----666666" /></NFormItem>
       </NForm>
       <NAlert v-if="validPreview" type="info" class="mb-12px">目标：{{ importTargets?.product_name }} / {{ chosenImportTarget ? skuName(chosenImportTarget) : '' }}；总计 {{ previewResult?.total || 0 }} 条，重复 {{ (previewResult?.dup_in_file || 0) + (previewResult?.dup_in_db || 0) }} 条，无效 {{ previewResult?.invalid || 0 }} 条，可导入 {{ previewImportable }} 条。</NAlert>
       <template #action>

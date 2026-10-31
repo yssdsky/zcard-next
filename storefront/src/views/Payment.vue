@@ -468,7 +468,7 @@ function backToSelect() {
 async function loadDelivery() {
  if(order.value?.items.every(i=>i.goods_type==='physical'))return;
   const pwd = getOrderPassword(orderNo);
-  if (!pwd && !getToken()) return; // 游客使用查询密码，会员本人使用登录态。
+  if (!pwd && !getToken() && !getOrderAccessToken(orderNo)) return;
   const { data } = await fetchDelivery(orderNo, pwd).catch(() => ({ data: null }));
   if (data) delivery.value = data;
 }

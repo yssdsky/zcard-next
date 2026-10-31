@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/NovaWorks/zcard-next/server/internal/platform/orderaccess"
+	"github.com/go-kratos/kratos/v3/transport"
 
 	adminv1 "github.com/NovaWorks/zcard-next/server/api/admin/v1"
 	storefrontv1 "github.com/NovaWorks/zcard-next/server/api/storefront/v1"
@@ -35,10 +36,16 @@ func NewStoreDeliveryService(repo *DeliveryRepoImpl) *StoreDeliveryService {
 
 // FetchDelivery 取货（三重门——密码错误与单号不存在响应一致）。
 func (s *StoreDeliveryService) FetchDelivery(ctx context.Context, req *storefrontv1.FetchDeliveryRequest) (*storefrontv1.FetchDeliveryReply, error) {
-	if req.GetOrderNo() == "" || (req.GetQueryPassword() == "" && identity.ClaimsFromContext(ctx) == nil) {
+	token := req.GetOrderAccessToken()
+	if token == "" {
+		if tr, ok := transport.FromServerContext(ctx); ok {
+			token = tr.RequestHeader().Get("X-Order-Access-Token")
+		}
+	}
+	if req.GetOrderNo() == "" || (req.GetQueryPassword() == "" && token == "" && identity.ClaimsFromContext(ctx) == nil) {
 		return nil, errors.BadRequest("delivery.INVALID_INPUT", "订单号与查询密码必填")
 	}
-	res, err := s.repo.FetchDelivery(ctx, req.GetOrderNo(), req.GetQueryPassword(), clientIP(ctx))
+	res, err := s.repo.FetchDelivery(ctx, req.GetOrderNo(), req.GetQueryPassword(), clientIP(ctx), token)
 	if err != nil {
 		return nil, orderaccess.PublicError(err)
 	}
