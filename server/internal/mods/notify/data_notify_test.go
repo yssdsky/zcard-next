@@ -334,7 +334,7 @@ func TestBroadcastFlow(t *testing.T) {
 	}
 	inbox := NewInboxChannel(r)
 	disp := NewDispatcher(r, inbox)
-	svc := NewBroadcastService(r, disp, nil) // enq=nil → 降级直接执行
+	svc := NewBroadcastService(r, disp, nil)
 
 	// 预估：active 筛选 = 2
 	n, err := svc.EstimateAudience(ctx, "active", nil)
@@ -342,10 +342,11 @@ func TestBroadcastFlow(t *testing.T) {
 		t.Fatalf("预估错误: %d %v", n, err)
 	}
 
-	// 创建 + 立即执行（inbox 通道）
+	// 由本测试显式执行，避免创建时的异步发送与下方 Execute 竞争。
 	b, err := svc.Create(ctx, BroadcastInput{
 		Title: "促销", Content: "<p>全场 9 折</p>",
 		Channels: []string{"inbox"}, TargetType: "active",
+		ScheduledAt: time.Now().Add(time.Hour),
 	})
 	if err != nil {
 		t.Fatal(err)
