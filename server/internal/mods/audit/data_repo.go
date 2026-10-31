@@ -91,10 +91,10 @@ func (r *AuditRepo) WriteOpLog(ctx context.Context, in OpLogInput) error {
 		create.SetPermissionPoint(in.PermissionPoint)
 	}
 	if in.Before != nil {
-		create.SetBefore(in.Before)
+		create.SetBefore(redact(in.Before))
 	}
 	if in.After != nil {
-		create.SetAfter(in.After)
+		create.SetAfter(redact(in.After))
 	}
 	if in.IP != "" {
 		create.SetIP(in.IP)

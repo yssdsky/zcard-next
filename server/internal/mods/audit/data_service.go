@@ -89,12 +89,12 @@ func (s *AdminAuditService) ListOpLogs(ctx context.Context, req *adminv1.ListOpL
 			Ip: l.IP, CreatedAt: l.CreatedAt.Unix(),
 		}
 		if l.Before != nil {
-			if b, err := json.Marshal(l.Before); err == nil {
+			if b, err := json.Marshal(redact(l.Before)); err == nil {
 				item.BeforeJson = string(b)
 			}
 		}
 		if l.After != nil {
-			if b, err := json.Marshal(l.After); err == nil {
+			if b, err := json.Marshal(redact(l.After)); err == nil {
 				item.AfterJson = string(b)
 			}
 		}
