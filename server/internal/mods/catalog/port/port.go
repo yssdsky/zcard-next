@@ -173,7 +173,9 @@ type ProductInput struct {
 	Description                  string
 	DescriptionSet               bool // distinguish clearing an admin description from omitted upstream fields
 	Cover                        string
+	CoverSet                     bool // explicit empty cover clears it; omitted cover keeps the saved value
 	Images                       []string
+	ImagesSet                    bool  // replace the gallery, including an empty gallery
 	Price                        int64 // 分
 	FactoryPrice                 int64
 	StockType                    string
@@ -186,8 +188,9 @@ type ProductInput struct {
 	// 积分兑换价（分单位积分；0=不参与积分商城——PUT 全量语义，）
 	PointsRequired    int64
 	PointsRequiredSet bool // true = 写入该值（含 0=移出积分商城）
-	// 运营推荐（storefront 首页推荐位；PUT 全量语义，含 false=取消推荐）
-	IsRecommend bool
+	// 运营推荐（省略保留原值；false=取消推荐）。
+	IsRecommend    bool
+	IsRecommendSet bool
 	// 直发内容密文（url/code 商品；nil=不动。service 层已用 CardCipher 加密，
 	// AAD=product_id+subsite_id——创建时商品尚无 ID，由 repo 建后回填）
 	DirectContent []byte

@@ -323,11 +323,17 @@ func (r *ProductRepoImpl) updateProduct(ctx context.Context, id uint64, in port.
 	}
 	if in.DescriptionSet || in.Description != "" {
 		q.SetDescription(in.Description)
+		if current.UpstreamSourceID > 0 && current.Description != in.Description {
+			q.SetDescriptionProtected(true)
+		}
 	}
-	if in.Cover != "" {
+	if in.CoverSet || in.Cover != "" {
 		q.SetCover(in.Cover)
+		if current.UpstreamSourceID > 0 && current.Cover != in.Cover {
+			q.SetCoverProtected(true)
+		}
 	}
-	if len(in.Images) > 0 {
+	if in.ImagesSet || len(in.Images) > 0 {
 		q.SetImages(in.Images)
 	}
 	if in.Price > 0 {
@@ -358,7 +364,9 @@ func (r *ProductRepoImpl) updateProduct(ctx context.Context, id uint64, in port.
 	if in.StockVisibleSet {
 		q.SetStockVisible(in.StockVisible)
 	}
-	q.SetIsRecommend(in.IsRecommend) // PUT 全量语义（含 false=取消推荐）
+	if in.IsRecommendSet {
+		q.SetIsRecommend(in.IsRecommend)
+	}
 	if in.Sort >= 0 {
 		q.SetSort(in.Sort)
 	}

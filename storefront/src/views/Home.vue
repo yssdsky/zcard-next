@@ -46,7 +46,7 @@
     <div id="catalog" class="home-layout">
       <CategoryTree
         v-if="navStyle !== 'grid'"
-        :categories="categories" :loading="categoriesLoading" :error="!!categoriesError" @retry="loadCategories" :show-recommended="hasRecommended"
+        :categories="categories" :loading="categoriesLoading" :error="!!categoriesError" @retry="loadCategories" :show-recommended="showRecommendedFilter"
         :model-value="activeCategory"
         @update:model-value="pickCategory"
       />
@@ -63,7 +63,7 @@
         </form>
 
         <!-- 分类导航：grid=顶部胶囊全断点；list 时 PC 左树，移动端「全部分类」折叠树（含全部层级，替代胶囊） -->
-        <div v-if="navStyle === 'grid' && (categories.length || hasRecommended)" class="card cat-chips">
+        <div v-if="navStyle === 'grid' && (categories.length || showRecommendedFilter)" class="card cat-chips">
           <button class="mobile-cat-head" type="button" :aria-expanded="chipsExpanded" @click="chipsExpanded = !chipsExpanded">
             <span class="mcb-bar"></span><span class="mcb-title">{{ $t('全部分类') }}</span>
             <span class="mcb-count">{{ categories.length }} {{ $t('类') }}</span>
@@ -72,17 +72,32 @@
           </button>
           <div class="cat-chips-row" :class="{ expanded: chipsExpanded }">
             <button class="chip" :class="{ active: !activeCategory }" @click="pickCategory(0)"><ThemeIcon name="grid" class="chip-icon" />{{ $t('全部') }}</button>
-            <button v-if="hasRecommended" class="chip" :class="{ active: activeCategory === -1 }" @click="pickCategory(-1)">{{ $t('推荐商品') }}</button>
+            <button v-if="showRecommendedFilter" class="chip" :class="{ active: activeCategory === -1 }" @click="pickCategory(-1)">{{ $t('推荐商品') }}</button>
             <button v-for="c in categories.filter((x) => !x.parent_id)" :key="c.id" class="chip" :class="{ active: activeCategory === c.id }" @click="pickCategory(c.id)">
               <CategoryIcon :icon="c.icon" class="chip-icon" />{{ c.name }}
             </button>
           </div>
         </div>
-        <div v-else-if="categories.length || hasRecommended || categoriesLoading || categoriesError" class="card mobile-cat mobile-only">
-          <CategoryTree variant="panel" :categories="categories" :loading="categoriesLoading" :error="!!categoriesError" @retry="loadCategories" :show-recommended="hasRecommended" :model-value="activeCategory" @update:model-value="pickCategory" />
+        <div v-else-if="categories.length || showRecommendedFilter || categoriesLoading || categoriesError" class="card mobile-cat mobile-only">
+          <CategoryTree variant="panel" :categories="categories" :loading="categoriesLoading" :error="!!categoriesError" @retry="loadCategories" :show-recommended="showRecommendedFilter" :model-value="activeCategory" @update:model-value="pickCategory" />
         </div>
 
         <div v-if="navStyle === 'grid' && categoriesError" class="error" role="alert">{{ $t('分类加载失败') }} <button class="feed-retry" :disabled="categoriesLoading" @click="loadCategories">{{ $t('重试') }}</button></div>
+
+        <section v-if="showRecommendations && (recommendedProducts.length || recommendationsLoading || recommendationsError)" class="home-recommendations" aria-labelledby="home-recommendations-title" :aria-busy="recommendationsLoading">
+          <div class="recommendations-heading">
+            <h2 id="home-recommendations-title">{{ $t('推荐商品') }}</h2>
+            <router-link v-if="hasRecommended" class="recommendations-more" :to="{ path: '/', query: { recommend_only: '1' }, hash: '#catalog' }">{{ $t('查看全部') }}</router-link>
+          </div>
+          <div v-if="recommendationsError" class="error" role="alert">
+            {{ $t('推荐商品加载失败') }} <button class="feed-retry" :disabled="recommendationsLoading" @click="refreshRecommendations">{{ $t('重试') }}</button>
+          </div>
+          <div v-if="recommendationsLoading && !recommendedProducts.length" class="feed-status" role="status">{{ $t('正在加载商品…') }}</div>
+          <div v-if="recommendedProducts.length" class="product-grid" :class="{ 'catalog-big': bigGrid }" :style="gridStyle">
+            <ProductCard v-for="p in recommendedProducts" :key="p.id" :p="p" mode="grid" :show-sales="showSales" :show-stock="showStock" />
+          </div>
+        </section>
+
         <div v-if="error" role="alert" class="error" style="margin-bottom: 12px;">{{ uiText(error) }} <button :disabled="loading" class="feed-retry" @click="load(products.length > 0)">{{ $t('重新加载') }}</button></div>
 
         <CatalogToolbar :title="sectionTitle" :sort="!showSales && sort === 'sales' ? 'default' : sort" :show-sales="showSales" :view="viewMode" :loading="loading" @sort="changeSort" @view="changeView" />
@@ -182,11 +197,16 @@ const categoriesError = ref('');
 const heroReady = ref(false);
 const heroError = ref(false);
 const hasRecommended = ref(false); // 推荐分类仅在存在可见推荐商品时显示
+const recommendedProducts = ref<Product[]>([]);
+const recommendationsLoading = ref(true);
+const recommendationsError = ref(false);
 const activeCategory = ref(0);
+const showRecommendedFilter = computed(() => hasRecommended.value || activeCategory.value === -1);
 const viewMode = ref<'grid' | 'list'>('grid');
 const page = ref(1);
 const defaultPageSize = ref(20);
 const pageSize = ref(20);
+const showRecommendations = computed(() => activeCategory.value === 0 && !searchTerm.value && page.value === 1);
 const sort = ref('default');
 const total = ref(0);
 const mobileCatalog = ref(typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches);
@@ -405,13 +425,21 @@ function formatDate(unix?: number): string {
   return new Date(unix * 1000).toLocaleDateString(localeTag.value);
 }
 
+const recommendationRequest = () => listProducts({ recommend_only: true, sort: 'default', page: 1, page_size: 8 });
+let recommendationsSequence = 0;
 async function refreshRecommendations() {
-  const { data, error: err } = await listProducts({ recommend_only: true, page: 1, page_size: 1 });
-  if (err) return; // Temporary failures must not discard the current selection.
-  hasRecommended.value = (data?.items?.length || 0) > 0;
-  if (!hasRecommended.value && activeCategory.value === -1) {
-    activeCategory.value = 0;
-    page.value = 1;
+  if (!catalogActive.value || route.path !== '/') return;
+  const sequence = ++recommendationsSequence;
+  recommendationsLoading.value = true;
+  recommendationsError.value = false;
+  try {
+    const { data, error: err } = await recommendationRequest();
+    if (sequence !== recommendationsSequence) return;
+    if (err) { recommendationsError.value = true; return; }
+    recommendedProducts.value = uniqueProducts(data?.items || []);
+    hasRecommended.value = recommendedProducts.value.length > 0;
+  } finally {
+    if (sequence === recommendationsSequence) recommendationsLoading.value = false;
   }
 }
 
@@ -505,7 +533,12 @@ onMounted(() => {
   stopViewportWatch = () => media.removeEventListener('change', update);
   update();
 });
-onUnmounted(() => { stopViewportWatch?.(); ++loadSequence; });
+onUnmounted(() => { stopViewportWatch?.(); ++loadSequence; ++recommendationsSequence; });
+
+useStockRefresh(recommendedProducts, () => catalogActive.value && route.path === '/' && showRecommendations.value && !recommendationsLoading.value, async () => {
+  const response = await recommendationRequest();
+  return response.data?.items || [];
+});
 
 useStockRefresh(products, () => catalogActive.value && route.path === '/' && !loading.value && !loadingMore.value, async () => {
   const mobile = mobileCatalog.value;
@@ -537,6 +570,8 @@ onActivated(async () => {
 onDeactivated(() => {
   catalogActive.value = false;
   ++loadSequence;
+  ++recommendationsSequence;
+  recommendationsLoading.value = false;
   loading.value = false;
   loadingMore.value = false;
   stopHero();
@@ -641,6 +676,12 @@ async function loadTemplateSettings() {
 <style scoped>
 .hero-placeholder { min-height: 160px; display: grid; place-items: center; color: #64748b; background: #f1f5f9; border-radius: 16px; }
 .home { display: flex; flex-direction: column; gap: 16px; }
+.home-recommendations { display: flex; flex-direction: column; gap: 12px; padding-bottom: 12px; }
+.recommendations-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.recommendations-heading h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.recommendations-more { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; color: var(--zc-primary); font-size: 14px; flex-shrink: 0; }
+.recommendations-more:hover { text-decoration: underline; }
+.recommendations-more:focus-visible { outline: 2px solid var(--zc-primary); outline-offset: 2px; border-radius: 8px; }
 .feed-status { align-self: center; max-width: 100%; padding: 0 12px; border-radius: 999px; background: rgba(255, 255, 255, .94); min-height: 44px; display: flex; justify-content: center; align-items: center; color: #64748b; font-size: 13px; text-align: center; }
 .feed-status.is-complete { min-height: 28px; }
 .feed-more, .feed-retry { min-height: 44px; padding: 8px 12px; border: 0; border-radius: 8px; background: transparent; color: inherit; font: inherit; cursor: pointer; }

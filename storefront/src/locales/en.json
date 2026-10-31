@@ -1373,5 +1373,7 @@
   "服务总价无效": "The service total price is invalid.",
   "服务或定价已变化，请重新报价": "The service or pricing has changed. Request a new quote.",
   "购买请求标识无效": "The purchase request ID is invalid.",
-  "操作请求标识无效": "The action request ID is invalid."
+  "操作请求标识无效": "The action request ID is invalid.",
+  "查看全部": "View all",
+  "推荐商品加载失败": "Recommended products could not be loaded."
 }

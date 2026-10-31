@@ -4,6 +4,8 @@ import (
 	"context"
 	adminv1 "github.com/NovaWorks/zcard-next/server/api/admin/v1"
 	"testing"
+
+	"google.golang.org/protobuf/proto"
 )
 
 func TestProductVideoClearAndArchive(t *testing.T) {
@@ -18,7 +20,7 @@ func TestProductVideoClearAndArchive(t *testing.T) {
 	if n := d.Client.Media.GetX(ctx, m.ID).RefCount; n != 1 {
 		t.Fatal(n)
 	}
-	_, e = svc.UpdateProduct(ctx, &adminv1.UpdateProductRequest{Id: p.Id, Name: "video", StockType: "card", PriceCents: 100, Description: "", Status: 0})
+	_, e = svc.UpdateProduct(ctx, &adminv1.UpdateProductRequest{Id: p.Id, Name: "video", StockType: "card", PriceCents: 100, Description: proto.String(""), Status: 0})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -28,7 +30,7 @@ func TestProductVideoClearAndArchive(t *testing.T) {
 	if n := d.Client.Media.GetX(ctx, m.ID).RefCount; n != 0 {
 		t.Fatal(n)
 	}
-	_, e = svc.UpdateProduct(ctx, &adminv1.UpdateProductRequest{Id: p.Id, Name: "video", StockType: "card", PriceCents: 100, Description: html, Status: 0})
+	_, e = svc.UpdateProduct(ctx, &adminv1.UpdateProductRequest{Id: p.Id, Name: "video", StockType: "card", PriceCents: 100, Description: proto.String(html), Status: 0})
 	if e != nil {
 		t.Fatal(e)
 	}

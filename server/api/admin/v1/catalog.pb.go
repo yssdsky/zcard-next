@@ -995,21 +995,24 @@ type UpdateProductRequest struct {
 	Id                    uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
 	Name                  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	CategoryId            uint64                 `protobuf:"varint,3,opt,name=category_id,json=categoryId,proto3" json:"category_id,omitempty"`
-	Description           string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
-	Cover                 string                 `protobuf:"bytes,5,opt,name=cover,proto3" json:"cover,omitempty"`
-	Images                []string               `protobuf:"bytes,6,rep,name=images,proto3" json:"images,omitempty"`
-	PriceCents            int64                  `protobuf:"varint,7,opt,name=price_cents,json=priceCents,proto3" json:"price_cents,omitempty"`
-	FactoryPriceCents     int64                  `protobuf:"varint,8,opt,name=factory_price_cents,json=factoryPriceCents,proto3" json:"factory_price_cents,omitempty"`
-	DeliveryMode          string                 `protobuf:"bytes,9,opt,name=delivery_mode,json=deliveryMode,proto3" json:"delivery_mode,omitempty"`
-	StockVisible          *bool                  `protobuf:"varint,10,opt,name=stock_visible,json=stockVisible,proto3,oneof" json:"stock_visible,omitempty"`
-	Sort                  int32                  `protobuf:"varint,11,opt,name=sort,proto3" json:"sort,omitempty"`
-	Status                int32                  `protobuf:"varint,12,opt,name=status,proto3" json:"status,omitempty"`
+	// 省略保留原值，显式空串清除。
+	Description *string  `protobuf:"bytes,4,opt,name=description,proto3,oneof" json:"description,omitempty"`
+	Cover       *string  `protobuf:"bytes,5,opt,name=cover,proto3,oneof" json:"cover,omitempty"`
+	Images      []string `protobuf:"bytes,6,rep,name=images,proto3" json:"images,omitempty"`
+	// true 时以 images 替换图集（包括空数组）；省略且 images 非空时兼容旧客户端。
+	ImagesSet         bool   `protobuf:"varint,19,opt,name=images_set,json=imagesSet,proto3" json:"images_set,omitempty"`
+	PriceCents        int64  `protobuf:"varint,7,opt,name=price_cents,json=priceCents,proto3" json:"price_cents,omitempty"`
+	FactoryPriceCents int64  `protobuf:"varint,8,opt,name=factory_price_cents,json=factoryPriceCents,proto3" json:"factory_price_cents,omitempty"`
+	DeliveryMode      string `protobuf:"bytes,9,opt,name=delivery_mode,json=deliveryMode,proto3" json:"delivery_mode,omitempty"`
+	StockVisible      *bool  `protobuf:"varint,10,opt,name=stock_visible,json=stockVisible,proto3,oneof" json:"stock_visible,omitempty"`
+	Sort              int32  `protobuf:"varint,11,opt,name=sort,proto3" json:"sort,omitempty"`
+	Status            int32  `protobuf:"varint,12,opt,name=status,proto3" json:"status,omitempty"`
 	// 积分兑换价（0=不参与积分商城；）
 	PointsRequired int64 `protobuf:"varint,13,opt,name=points_required,json=pointsRequired,proto3" json:"points_required,omitempty"`
 	// 直发内容明文（空=保持不变；url/code 商品加密存储）
 	DirectContent string `protobuf:"bytes,14,opt,name=direct_content,json=directContent,proto3" json:"direct_content,omitempty"`
-	// 运营推荐（storefront 首页推荐位；PUT 全量语义，含 false=取消推荐）
-	IsRecommend bool `protobuf:"varint,15,opt,name=is_recommend,json=isRecommend,proto3" json:"is_recommend,omitempty"`
+	// 运营推荐（省略保留原值；false=取消推荐）。
+	IsRecommend *bool `protobuf:"varint,15,opt,name=is_recommend,json=isRecommend,proto3,oneof" json:"is_recommend,omitempty"`
 	// 空值保留原类型；card | url | code
 	StockType     string `protobuf:"bytes,16,opt,name=stock_type,json=stockType,proto3" json:"stock_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1145,15 +1148,15 @@ func (x *UpdateProductRequest) GetCategoryId() uint64 {
 }
 
 func (x *UpdateProductRequest) GetDescription() string {
-	if x != nil {
-		return x.Description
+	if x != nil && x.Description != nil {
+		return *x.Description
 	}
 	return ""
 }
 
 func (x *UpdateProductRequest) GetCover() string {
-	if x != nil {
-		return x.Cover
+	if x != nil && x.Cover != nil {
+		return *x.Cover
 	}
 	return ""
 }
@@ -1163,6 +1166,13 @@ func (x *UpdateProductRequest) GetImages() []string {
 		return x.Images
 	}
 	return nil
+}
+
+func (x *UpdateProductRequest) GetImagesSet() bool {
+	if x != nil {
+		return x.ImagesSet
+	}
+	return false
 }
 
 func (x *UpdateProductRequest) GetPriceCents() int64 {
@@ -1222,8 +1232,8 @@ func (x *UpdateProductRequest) GetDirectContent() string {
 }
 
 func (x *UpdateProductRequest) GetIsRecommend() bool {
-	if x != nil {
-		return x.IsRecommend
+	if x != nil && x.IsRecommend != nil {
+		return *x.IsRecommend
 	}
 	return false
 }
@@ -6087,7 +6097,8 @@ const file_admin_v1_catalog_proto_rawDesc = "" +
 	"\x0e_shipping_modeB\x15\n" +
 	"\x13_shipping_fee_centsB\x11\n" +
 	"\x0f_physical_stockB\x0f\n" +
-	"\r_manual_stock\"\xc7\t\n" +
+	"\r_manual_stock\"\xa0\n" +
+	"\n" +
 	"\x14UpdateProductRequest\x12.\n" +
 	"\x10product_property\x18G \x01(\tH\x00R\x0fproductProperty\x88\x01\x01\x12,\n" +
 	"\x0ftrack_inventory\x18H \x01(\bH\x01R\x0etrackInventory\x88\x01\x01\x12(\n" +
@@ -6104,21 +6115,24 @@ const file_admin_v1_catalog_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\x04B\x03\xe0A\x02R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
 	"\vcategory_id\x18\x03 \x01(\x04R\n" +
-	"categoryId\x12 \n" +
-	"\vdescription\x18\x04 \x01(\tR\vdescription\x12\x14\n" +
-	"\x05cover\x18\x05 \x01(\tR\x05cover\x12\x16\n" +
-	"\x06images\x18\x06 \x03(\tR\x06images\x12\x1f\n" +
+	"categoryId\x12%\n" +
+	"\vdescription\x18\x04 \x01(\tH\tR\vdescription\x88\x01\x01\x12\x19\n" +
+	"\x05cover\x18\x05 \x01(\tH\n" +
+	"R\x05cover\x88\x01\x01\x12\x16\n" +
+	"\x06images\x18\x06 \x03(\tR\x06images\x12\x1d\n" +
+	"\n" +
+	"images_set\x18\x13 \x01(\bR\timagesSet\x12\x1f\n" +
 	"\vprice_cents\x18\a \x01(\x03R\n" +
 	"priceCents\x12.\n" +
 	"\x13factory_price_cents\x18\b \x01(\x03R\x11factoryPriceCents\x12#\n" +
 	"\rdelivery_mode\x18\t \x01(\tR\fdeliveryMode\x12(\n" +
 	"\rstock_visible\x18\n" +
-	" \x01(\bH\tR\fstockVisible\x88\x01\x01\x12\x12\n" +
+	" \x01(\bH\vR\fstockVisible\x88\x01\x01\x12\x12\n" +
 	"\x04sort\x18\v \x01(\x05R\x04sort\x12\x16\n" +
 	"\x06status\x18\f \x01(\x05R\x06status\x12'\n" +
 	"\x0fpoints_required\x18\r \x01(\x03R\x0epointsRequired\x12%\n" +
-	"\x0edirect_content\x18\x0e \x01(\tR\rdirectContent\x12!\n" +
-	"\fis_recommend\x18\x0f \x01(\bR\visRecommend\x12\x1d\n" +
+	"\x0edirect_content\x18\x0e \x01(\tR\rdirectContent\x12&\n" +
+	"\fis_recommend\x18\x0f \x01(\bH\fR\visRecommend\x88\x01\x01\x12\x1d\n" +
 	"\n" +
 	"stock_type\x18\x10 \x01(\tR\tstockTypeB\x13\n" +
 	"\x11_product_propertyB\x12\n" +
@@ -6129,8 +6143,11 @@ const file_admin_v1_catalog_proto_rawDesc = "" +
 	"\x0e_shipping_modeB\x15\n" +
 	"\x13_shipping_fee_centsB\x11\n" +
 	"\x0f_physical_stockB\x0f\n" +
-	"\r_manual_stockB\x10\n" +
-	"\x0e_stock_visible\"\xa5\x01\n" +
+	"\r_manual_stockB\x0e\n" +
+	"\f_descriptionB\b\n" +
+	"\x06_coverB\x10\n" +
+	"\x0e_stock_visibleB\x0f\n" +
+	"\r_is_recommend\"\xa5\x01\n" +
 	"\x14DeleteProductRequest\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\x04B\x03\xe0A\x02R\x02id\x12#\n" +
 	"\rdelete_orders\x18\x02 \x01(\bR\fdeleteOrders\x12!\n" +

@@ -13463,12 +13463,16 @@ components:
                     type: string
                 description:
                     type: string
+                    description: 省略保留原值，显式空串清除。
                 cover:
                     type: string
                 images:
                     type: array
                     items:
                         type: string
+                imagesSet:
+                    type: boolean
+                    description: true 时以 images 替换图集（包括空数组）；省略且 images 非空时兼容旧客户端。
                 priceCents:
                     type: string
                 factoryPriceCents:
@@ -13491,7 +13495,7 @@ components:
                     description: 直发内容明文（空=保持不变；url/code 商品加密存储）
                 isRecommend:
                     type: boolean
-                    description: 运营推荐（storefront 首页推荐位；PUT 全量语义，含 false=取消推荐）
+                    description: 运营推荐（省略保留原值；false=取消推荐）。
                 stockType:
                     type: string
                     description: 空值保留原类型；card | url | code

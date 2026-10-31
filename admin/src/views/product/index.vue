@@ -406,6 +406,7 @@ async function commitCellEdit(row: any, field: "price" | "cost") {
     sort: row.sort || 0,
     stock_visible: row.stock_visible !== false,
     delivery_mode: row.delivery_mode || "",
+    is_recommend: !!row.is_recommend,
   };
   payload[centsKey] = yuanToFen(draft);
   const { error } = await updateProduct(row.id, payload);
@@ -508,6 +509,7 @@ function priceLine(row: any, field: "price" | "cost") {
 // priceCell 价格块：售价/成本/加价三行合一（标签与数值紧邻，行内铅笔气泡改价）
 function priceCell(row: any) {
  if(row.product_kind=== "sms_channel") return h("span",{class:"text-primary"},"商品页实时选价");
+ if(row.product_kind=== "social_service") return h("span",{class:"text-primary"},"商品页动态报价");
   const price = row.price_cents || 0;
   const cost = row.factory_price_cents || 0;
   // (售价 − 成本) / 成本（成本基准；成本 0 无法计算）
@@ -590,7 +592,7 @@ const showCategory = ref(false);
 
 // 分步表单（大厂发布商品模式：基础 → 价格库存 → 商品描述 → 规格与控件 → 高级设置）
 const step = ref(1);
-const stepCount = computed(() => formData.product_property === "physical" ? 4 : 5);
+const stepCount = computed(() => formData.product_kind === "social_service" ? 3 : formData.product_property === "physical" ? 4 : 5);
 
 const formData = reactive({
  product_kind:"standard",
@@ -620,6 +622,8 @@ const formData = reactive({
   status: 1,
   is_recommend: false,
 });
+const isSocialProduct = computed(() => formData.product_kind === "social_service");
+const isDynamicProduct = computed(() => isSocialProduct.value || formData.product_kind === "sms_channel");
 const directContentSet = ref(false); // 编辑时已配置直发内容（不回显明文，留空=不变）
 const savedInventoryTracked = computed(() => editingProduct.value?.track_inventory !== false);
 const inventoryModePending = computed(() =>
@@ -668,7 +672,7 @@ function stepNext() {
     window.$message?.warning("请先填写商品名称");
     return;
   }
-  if (step.value === 2 && (formData.product_kind !== "sms_channel" && formData.price_yuan <= 0)) {
+  if (step.value === 2 && (!isDynamicProduct.value && formData.price_yuan <= 0)) {
     window.$message?.warning("请先填写有效售价");
     return;
   }
@@ -682,16 +686,29 @@ const columns: DataTableColumns<any> = [
     title: "封面",
     key: "cover",
     width: 72,
-    render: (row) =>
-      row.cover
-        ? h("img", { src: row.cover, class: "h-44px w-44px rounded-4px object-cover" })
+    render: (row) => {
+      const canEdit = checkAuth("catalog:write");
+      const label = row.cover ? "更换封面" : "补封面";
+      return h(
+        canEdit ? "button" : "div",
+        {
+          ...(canEdit ? {
+            type: "button",
+            disabled: row.is_locked,
+            onClick: () => handleEdit(row, 3),
+            "aria-label": `${label}：${row.name}`,
+          } : {}),
+          title: canEdit ? row.is_locked ? "商品已锁定，请先解锁后修改封面" : label : "商品封面",
+          class: "block h-44px w-44px rounded-4px p-0 disabled:cursor-not-allowed disabled:opacity-60",
+        },
+        row.cover
+        ? h("img", { src: row.cover, alt: `${row.name}封面`, class: "h-44px w-44px rounded-4px object-cover" })
         : // 暂无主图占位（大厂缩略图占位惯例：浅灰底 + 相机 SVG + 提示文案）
           h(
             "div",
             {
               class:
                 "flex h-44px w-44px flex-col items-center justify-center gap-2px rounded-4px border border-dashed border-gray-300 bg-gray-50 dark:border-gray-600 dark:bg-gray-800",
-              title: "暂无主图",
             },
             [
               h(
@@ -712,9 +729,11 @@ const columns: DataTableColumns<any> = [
                   h("circle", { cx: "12", cy: "12.5", r: "3.2" }),
                 ],
               ),
-              h("span", { class: "text-10px leading-10px text-gray-400" }, "暂无主图"),
+              h("span", { class: "text-11px leading-12px text-gray-500" }, canEdit ? "补封面" : "暂无封面"),
             ],
           ),
+      );
+    },
   },
   {
     title: "商品名",
@@ -948,14 +967,15 @@ const columns: DataTableColumns<any> = [
   {
     title: "操作",
     key: "actions",
-    width: 180,
+    width: 144,
+    fixed: "right",
     render: (row) =>
       h(
         NSpace,
         { size: "small" },
         {
           default: () => [
-            checkAuth("inventory:import") && row.stock_type === "card" && (row.product_property || row.goods_type) !== "physical"
+            checkAuth("inventory:import") && row.stock_type === "card" && row.product_kind !== "social_service" && (row.product_property || row.goods_type) !== "physical"
               ? h(NButton, { size: "small", disabled: row.is_locked, onClick: () => router.push({ name: "inventory", query: { product_id: row.id, open_import: "1" } }) }, { default: () => "导入卡密" })
               : null,
             checkAuth("catalog:write")
@@ -965,7 +985,7 @@ const columns: DataTableColumns<any> = [
                   { default: () => (row.is_locked ? "查看" : "编辑") },
                 )
               : null,
-            checkAuth("catalog:write") && row.upstream_source_id
+            checkAuth("catalog:write") && row.upstream_source_id && row.product_kind !== "social_service"
               ? h(
                   NButton,
                   { size: "small", onClick: () => openDeliverySources(row) },
@@ -1231,7 +1251,7 @@ function resetForm() {
   initialProduct.value = JSON.stringify(buildPayload());
 }
 
-async function handleEdit(row: any) {
+async function handleEdit(row: any, initialStep = 1) {
   // 编辑取详情（列表行可能缺全字段）
   const { data, error } = await fetchProduct(row.id);
   if (error || !data) return;
@@ -1245,7 +1265,7 @@ async function handleEdit(row: any) {
     description: p.description || "",
     cover: p.cover ? [p.cover] : [],
     images: [...(p.images || [])],
-    product_kind:p.product_kind || "standard",
+    product_kind:p.product_kind || (p.delivery_kind === "social_service" ? "social_service" : "standard"),
     price_yuan: Number(centsToYuan(p.price_cents)),
     factory_price_yuan: p.factory_price_cents ? Number(centsToYuan(p.factory_price_cents)) : 0,
     points_required: p.points_required || 0,
@@ -1269,7 +1289,7 @@ async function handleEdit(row: any) {
     is_recommend: !!p.is_recommend,
   });
   directContentSet.value = !!p.has_direct_content;
-  step.value = 1; // 编辑也从第一步进入
+  step.value = initialStep;
   independentlySaved.value = false;
   initialProduct.value = JSON.stringify(buildPayload());
   showCreate.value = true;
@@ -1284,9 +1304,10 @@ function buildPayload() {
     description: formData.description,
     cover: formData.cover[0] || "",
     images: formData.images,
-    price_cents: yuanToFen(formData.price_yuan),
-    factory_price_cents: yuanToFen(formData.factory_price_yuan || 0),
-    points_required: physical ? 0 : formData.points_required || 0,
+    images_set: true,
+    price_cents: isDynamicProduct.value ? 0 : yuanToFen(formData.price_yuan),
+    factory_price_cents: isDynamicProduct.value ? 0 : yuanToFen(formData.factory_price_yuan || 0),
+    points_required: physical || isDynamicProduct.value ? 0 : formData.points_required || 0,
     product_property: formData.product_property,
     goods_type: formData.product_property,
     track_inventory: physical ? formData.track_inventory : true,
@@ -1302,8 +1323,8 @@ function buildPayload() {
       : {}),
     stock_type: physical ? "card" : formData.stock_type,
     fulfillment_mode: physical ? "auto" : formData.fulfillment_mode,
-    ...(!physical ? { manual_stock: formData.manual_stock } : {}),
-    ...(!physical && formData.direct_content ? { direct_content: formData.direct_content } : {}),
+    ...(!physical && !isSocialProduct.value ? { manual_stock: formData.manual_stock } : {}),
+    ...(!physical && !isDynamicProduct.value && formData.direct_content ? { direct_content: formData.direct_content } : {}),
     delivery_mode: physical ? "status" : formData.delivery_mode,
     stock_visible: formData.stock_visible,
     dedup: physical ? false : formData.dedup,
@@ -1320,7 +1341,16 @@ async function handleSave() {
     window.$message?.warning("下单控件还有未保存输入，请先点击创建/更新控件或取消编辑");
     return;
   }
-  if (!formData.name || (formData.product_kind !== "sms_channel" && formData.price_yuan <= 0)) return;
+  if (!formData.name.trim()) {
+    step.value = 1;
+    window.$message?.warning("请先填写商品名称");
+    return;
+  }
+  if (!isDynamicProduct.value && formData.price_yuan <= 0) {
+    step.value = 2;
+    window.$message?.warning("请先填写有效售价");
+    return;
+  }
   saving.value = true;
   try {
     if (skuPanel.value && !(await skuPanel.value.savePending())) return;
@@ -1350,7 +1380,7 @@ async function handleSave() {
 // 弹窗原地转编辑态并停留在本步——规格/控件面板随即激活，一次流程走完
 async function saveAndContinue() {
   if (editorBusy.value) return;
-  if (!formData.name || (formData.product_kind !== "sms_channel" && formData.price_yuan <= 0)) {
+  if (!formData.name || (!isDynamicProduct.value && formData.price_yuan <= 0)) {
     window.$message?.warning("请先完成商品名称与售价");
     return;
   }
@@ -1786,9 +1816,9 @@ onMounted(() => {
         >
           <NStep title="基础信息" />
           <NStep title="价格库存" />
-          <NStep title="商品描述" />
-          <NStep title="规格与控件" />
-          <NStep v-if="formData.product_property !== 'physical'" title="高级设置" />
+          <NStep title="图片与详情" description="商品描述" />
+          <NStep v-if="!isSocialProduct" title="规格与控件" />
+          <NStep v-if="formData.product_property !== 'physical' && !isSocialProduct" title="高级设置" />
         </NSteps>
 
         <!-- 商品描述步：完全展开（编辑器整高可见，不内滚）；其余步骤限高内滚 -->
@@ -1886,12 +1916,12 @@ onMounted(() => {
               </p>
             </template>
             <NButton
-              v-if="formData.product_property !== 'physical' && formData.product_kind !== 'sms_channel' && editingId && checkAuth('catalog:write')"
+              v-if="formData.product_property !== 'physical' && !isDynamicProduct && editingId && checkAuth('catalog:write')"
               class="mb-12px"
               @click="openDeliverySources(editingProduct)"
               >发货设置：上游采购 / 我的卡密 / 重复发货</NButton
             >
-            <NFormItem v-if="formData.product_property !== 'physical' && formData.product_kind !== 'sms_channel'" label="交付方式"
+            <NFormItem v-if="formData.product_property !== 'physical' && !isDynamicProduct" label="交付方式"
               ><NSelect
                 v-model:value="formData.fulfillment_mode"
                 :disabled="['local', 'reuse'].includes(formData.fulfillment_mode)"
@@ -1902,7 +1932,7 @@ onMounted(() => {
                   { label: '重复发货（请在发货设置修改）', value: 'reuse', disabled: true },
                 ]"
             /></NFormItem>
-            <NFormItem v-if="formData.product_property !== 'physical'" label="人工可售总量"
+            <NFormItem v-if="formData.product_property !== 'physical' && !isSocialProduct" label="人工可售总量"
               ><div class="w-full">
                 <NInputNumber v-model:value="formData.manual_stock" :min="-1" :precision="0" />
                 <p class="text-12px opacity-60">
@@ -1911,7 +1941,7 @@ onMounted(() => {
               </div></NFormItem
             >
             <NFormItem
-              v-if="formData.product_property !== 'physical' && formData.fulfillment_mode !== 'manual'"
+              v-if="formData.product_property !== 'physical' && !isSocialProduct && formData.fulfillment_mode !== 'manual'"
               label="库存类型"
             >
               <NSelect v-model:value="formData.stock_type" :options="stockTypeOptions" />
@@ -1960,7 +1990,8 @@ onMounted(() => {
             label-width="100"
           >
             <NAlert v-if="formData.product_kind==='sms_channel'" type="info" class="mb-12px">接码渠道商品按用户选择实时定价。加价沿用货源导入/映射中保存的比例或固定加价规则；修改规则后立即用于新报价。</NAlert>
-            <NFormItem v-if="formData.product_kind!=='sms_channel'" :label="`售价（${currencyUnit()}）`" path="price_yuan" :rule="{ required: true }">
+            <NAlert v-if="isSocialProduct" type="info" class="mb-12px">社交服务按货源购买规则动态报价；可编辑商品名称、分类、推荐和图片详情。</NAlert>
+            <NFormItem v-if="!isDynamicProduct" :label="`售价（${currencyUnit()}）`" path="price_yuan" :rule="{ required: true }">
               <NInputNumber
                 v-model:value="formData.price_yuan"
                 :min="0.01"
@@ -1969,7 +2000,7 @@ onMounted(() => {
                 class="w-full"
               />
             </NFormItem>
-            <NFormItem v-if="formData.product_kind!=='sms_channel'" :label="`成本价（${currencyUnit()}）`">
+            <NFormItem v-if="!isDynamicProduct" :label="`成本价（${currencyUnit()}）`">
               <NInputNumber
                 v-model:value="formData.factory_price_yuan"
                 :min="0"
@@ -1978,7 +2009,7 @@ onMounted(() => {
                 class="w-full"
               />
             </NFormItem>
-            <NFormItem v-if="formData.product_property !== 'physical' && formData.product_kind!=='sms_channel'" label="积分价">
+            <NFormItem v-if="formData.product_property !== 'physical' && !isDynamicProduct" label="积分价">
               <NInputNumber
                 v-model:value="formData.points_required"
                 :min="0"
@@ -2044,15 +2075,15 @@ onMounted(() => {
             }}。 可在「批量修改内容」中选择该商品并恢复跟随上游。
           </NAlert>
           <NForm :model="formData" :disabled="editorLocked" label-placement="top">
-            <div class="flex gap-24px">
-              <NFormItem label="封面图" class="w-240px">
+            <div class="flex flex-col gap-16px sm:flex-row sm:gap-24px">
+              <NFormItem label="封面图" class="w-full sm:w-240px">
                 <MediaField
                   :disabled="editorLocked"
                   v-model:value="formData.cover"
                   tip="建议 1:1，列表缩略图"
                 />
               </NFormItem>
-              <NFormItem label="详情图集" class="flex-1">
+              <NFormItem label="详情图集" class="min-w-0 flex-1">
                 <MediaField
                   :disabled="editorLocked"
                   v-model:value="formData.images"
@@ -2080,7 +2111,7 @@ onMounted(() => {
 
         <NAlert v-if="step===4 && formData.product_kind==='sms_channel'" type="info">此商品的国家、服务和价格选项由供货端按页提供，无需创建 SKU 或下单控件。</NAlert>
         <!-- 第 4 步：规格与控件（面板内嵌——编辑态直接生效；创建态先保存商品） -->
-        <div v-if="showCreate" v-show="step === 4 && formData.product_kind!=='sms_channel'" class="px-12px">
+        <div v-if="showCreate && !isDynamicProduct" v-show="step === 4" class="px-12px">
           <template v-if="editingId">
             <NAlert type="info" class="mb-12px"
               >规格的「保存/全部保存/删除」及控件的「创建/更新/删除」会立即生效，关闭商品窗口不会撤销。其余未保存输入可通过取消放弃。</NAlert
@@ -2121,16 +2152,16 @@ onMounted(() => {
         </div>
       </div>
       <template #footer>
-        <div class="flex items-center justify-between">
-          <span class="text-12px text-gray-400">第 {{ step }} / {{ stepCount }} 步</span>
-          <NSpace>
+        <div class="flex flex-col gap-8px sm:flex-row sm:items-center sm:justify-between">
+          <span class="shrink-0 text-12px text-gray-400">第 {{ step }} / {{ stepCount }} 步</span>
+          <NSpace justify="end">
             <NButton :disabled="editorBusy" @click="requestClose">取消</NButton>
             <NButton v-if="step > 1" :disabled="editorBusy" @click="stepPrev">上一步</NButton>
-            <NButton v-if="step < stepCount" :disabled="editorBusy" type="primary" @click="stepNext"
+            <NButton v-if="step < stepCount" :disabled="editorBusy" :type="editingId && step === 3 ? 'default' : 'primary'" @click="stepNext"
               >下一步</NButton
             >
             <NButton
-              v-else-if="!editorLocked"
+              v-if="!editorLocked && (step === stepCount || (editingId && step === 3))"
               type="primary"
               :disabled="editorBusy"
               :loading="saving"

@@ -270,15 +270,16 @@ func (s *AdminCatalogService) UpdateProduct(ctx context.Context, req *adminv1.Up
 		GoodsType: req.GoodsType, ShippingMode: req.ShippingMode, ShippingFee: req.ShippingFeeCents, PhysicalStock: req.PhysicalStock, ExpectedPhysicalStock: req.ExpectedPhysicalStock, ShippingCountries: req.ShippingCountries,
 		Name: req.GetName(), CategoryID: req.GetCategoryId(),
 		Description:    sanitize.RichHTML(req.GetDescription()),
-		DescriptionSet: true,
-		Cover:          req.GetCover(), Images: req.GetImages(),
+		DescriptionSet: req.Description != nil,
+		Cover:          req.GetCover(), CoverSet: req.Cover != nil,
+		Images: req.GetImages(), ImagesSet: req.GetImagesSet(),
 		Price: req.GetPriceCents(), FactoryPrice: req.GetFactoryPriceCents(),
 		StockType: req.GetStockType(), DeliveryMode: req.GetDeliveryMode(),
 		FulfillmentMode: req.GetFulfillmentMode(), ManualStock: req.ManualStock,
 		StockVisible: req.GetStockVisible(), StockVisibleSet: req.StockVisible != nil,
 		Sort: req.GetSort(), Status: int8(req.GetStatus()),
 		PointsRequired: req.GetPointsRequired(), PointsRequiredSet: true,
-		IsRecommend: req.GetIsRecommend(), // PUT 全量语义（含 false=取消推荐）
+		IsRecommend: req.GetIsRecommend(), IsRecommendSet: req.IsRecommend != nil,
 	}
 	old, err := s.repo.GetAdmin(ctx, tenancy.FromContext(ctx).SubsiteID, req.GetId())
 	if ent.IsNotFound(err) {
